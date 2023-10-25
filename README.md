@@ -9,7 +9,7 @@ Note: File locations in the code will have to be altered from our code to fit yo
 2) pronghorn_dada2.sbatch
 3) pronghorn_taxonomy.sbatch
 4) pronghorn_alphararefy.sbatch
-   # Note- despite name, this file will produce a non-rarefied table (filtered_table.qza) as well as an alpha rarefaction visualization at the chosen level (coded for 5000 here)
+   Note- despite name, this file will produce a non-rarefied table (filtered_table.qza) as well as an alpha rarefaction visualization at the chosen level (coded for 5000 here)
 Pronghorn metadata file used with the QIIME pipeline is pronghorn_metadata_plus.tsv file 
 
 Following the above QIIME2 pipeline will produce the following outputs needed for R analysis. These 3 files area also included in this project on github. 
@@ -19,4 +19,4 @@ Following the above QIIME2 pipeline will produce the following outputs needed fo
 
 Code for downstream analysis in R is in the final_pronghorn_updated_R.Rmd file
 
-Metadata file for downstream R anlaysis is included with paper upon publication. It is also included as the file in this project titled S6Table. This can be substituted in the R code for the metadata file "7_11_final_pronghorn_metadata.csv" 
+Metadata file for downstream R anlaysis is included with paper upon publication. It is also included as the file in this project titled S6Table.csv. This can be substituted in the R code for the metadata file "7_11_final_pronghorn_metadata.csv" 
