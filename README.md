@@ -1,6 +1,6 @@
 # Pronghorn_microbiome
 
-##QIIME2 Pipeline
+## QIIME2 Pipeline
 For those wishing to replicate the QIIME2 pipeline we used from the raw reads, they can currently be downloaded from Qiita.
 https://qiita.ucsd.edu/study/description/12842 (Note: this project is public but you need to create a Qiita account) 
 
