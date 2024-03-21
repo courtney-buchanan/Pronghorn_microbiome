@@ -1,0 +1,3475 @@
+---
+title: "Pronghorn final"
+author: "Courtney Buchanan"
+date: "2024-02-29"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+
+#Library/install
+
+```{r setup, include=FALSE}
+#install.packages("knitr")
+knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_knit$set(root.dir = './')
+
+#load the packages we need.... the install is blanked out... take away hashtag to install each if we need it... RUN this chunk each time
+
+#install.packages("BiocManager")
+library(BiocManager)
+#install.packages("devtools")
+library(devtools)
+#install.packages("devtools")
+#devtools::install_github("benjjneb/dada2", ref="v1.16")
+library(dada2)
+#BiocManager::install("DECIPHER", force=TRUE)
+library(DECIPHER)
+#install.packages("phangorn")
+library(phangorn)
+#BiocManager::install("phyloseq", force=TRUE)
+library(phyloseq)
+#BiocManager::install("decontam")
+library(decontam)
+#install.packages("tidyverse")
+library(tidyverse)
+library(dplyr)
+#BiocManager::install("multtest", force=TRUE)
+#devtools::install_github("gauravsk/ranacapa")
+library(ranacapa)
+#BiocManager::install("genefilter")
+library(genefilter)
+#install.packages("BiodiversityR")
+library(BiodiversityR)
+library(vegan)
+library(reshape2)
+#devtools::install_github("jbisanz/qiime2R")
+library(qiime2R)
+#install.packages("dplyr")
+library(dplyr)
+#install.packages("parallelDist")
+library(parallelDist)
+#install.packages("Hmisc")
+library(Hmisc)
+#install.packages("corrplot")
+library(corrplot)
+library(tibble)
+#install.packages("EcolUtils")#not available for new R version
+#library(EcolUtils)
+#install.packages("mde")
+library(mde)
+#install.packages("extrafont")
+library(extrafont)
+#font_import()
+loadfonts(device="win")
+fonts()
+
+#install.packages("fastDummies")
+library(fastDummies)#https://cran.r-project.org/web/packages/fastDummies/index.html
+
+```
+
+#Package Versions
+```{r}
+packageVersion("qiime2R")
+packageVersion("phyloseq")
+packageVersion("vegan")
+packageVersion("decontam")
+```
+#Color pallette
+```{r}
+friendly15_colors <- c("#000000","#009292","#ff6db6","#ffb6db",
+ "#490092","#006ddb","#b66dff","#b6dbff",
+ "#920000","#db6d00","#24ff24","#ffff6d", "#004949", "#6db6ff", "#924900")
+friendly18_colors <- c("#000000","#125a56", "#00767b", "#238f9d", "#42a7c6", "#60bce9", "#9dccef", "#c6dbed", "#dee6e7","#eceada","#f0e682","#f9d576", "#ffb954", "#fd9a44", "#f57634", "#e94c1f", "#d11807", "#a01813")
+
+friendly4_colors<-c("#d7191c", "#fdae61", "#2c7bb6", "#abd9e9")
+
+friendly4_colors_green_purp<-c("#7b3294", "#c2a5cf", "#a6dba0", "#008837")
+
+friendly5_colors_<-c("#8c510a", "#d8b365", "#5ab4ac", "#01665e", "#c7eae5")
+
+friendly16_colors <- c("#000000","#009292","#ff6db6","#ffb6db",
+ "#490092","#006ddb","#b66dff","#b6dbff",
+ "#920000","#f7f7f7", "#db6d00","#24ff24","#ffff6d", "#004949", "#6db6ff", "#924900")
+
+```
+
+
+
+#Load files
+Load my qiime files into this! Note I am loading in the not rarified file! Read in non-rarefied table, tree, metadata, taxonomy 
+```{r}
+##Reading in asv table for all samples that have not already been rarefied in qiime2
+
+SVs <- qiime2R::read_qza("./qza_files/filtered_table.qza")
+asv_table<-(SVs$data)
+Asv_table<-data.frame(asv_table)
+colnames(Asv_table) <- colnames(asv_table)
+
+##Reading in Tree
+tree<- qiime2R::read_qza("./qza_files/sepp-tree.qza")
+tree$data
+Tree<-tree$data
+
+##Reading in metadata
+Metadata_final <- read.csv("./7_11_final_pronghorn_metadata.csv")
+metadata_finalnames <- as.character(Metadata_final$sample_name)
+row.names(Metadata_final) <- Metadata_final$sample_name
+
+##Reading Taxonomy
+taxonomy<-read_qza("./qza_files/taxonomy.qza")
+head(taxonomy$data)
+#When taxonomy is imported, a single string is returned along with a confidence score. For many analysis we will want to break up this string and for that purpose the parse_taxonomy() function is provided
+taxonomy<-qiime2R::parse_taxonomy(taxonomy$data)
+head(taxonomy)
+
+#Convert names to characters.
+taxonomy$Kingdom <- as.character(taxonomy$Kingdom)
+taxonomy$Phylum <- as.character(taxonomy$Phylum)
+taxonomy$Class <- as.character(taxonomy$Class)
+taxonomy$Order <- as.character(taxonomy$Order)
+taxonomy$Family <- as.character(taxonomy$Family)
+taxonomy$Genus <- as.character(taxonomy$Genus)
+taxonomy$Species <- as.character(taxonomy$Species)
+taxonomy <- as.matrix(taxonomy)
+
+```
+#Create phyloseq object 
+```{r}
+#create phyloseq object: Note this one is created with the non-rarefied data... 
+phyloseq_16S <- phyloseq::phyloseq(otu_table(Asv_table, taxa_are_rows = TRUE, errorIfNULL = TRUE), sample_data(Metadata_final), tax_table(taxonomy), phy_tree(Tree))
+
+ 
+phyloseq_16S # if run will summarize the phyloseq object 
+
+saveRDS(phyloseq_16S, "PH_phyloseq_16S.rds")
+
+
+#Metadata table
+metadata <- data.frame(sample_data(phyloseq_16S)) #pull out metadata
+
+# ASV table has abundances of each ASV, column headers= ASV sequences, row names= sample names, and observations are ASV counts
+ASV_table <- data.frame(otu_table(phyloseq_16S)) #pull out the ASV table)
+
+colnames(ASV_table) <- colnames(asv_table)
+
+#Taxonomic table has taxonomy for each ASV sequence, Rows = full ASV sequences, columns = taxonomic identification at given taxonomy depth
+taxa_table <- data.frame(tax_table(phyloseq_16S)) # pull out the taxonomic table 
+
+```
+
+#Data Subsetting
+
+```{r}
+#Subsetting out the data to get to the form we need...Subset bacteria only reads, to create phyloseq16s_bact,  then run decontaminate, create phyloseq16S_decom, run a subset so that we remove blanks and get phyloseq_16S_no_blank, finally remove samples with the bad metadata
+phyloseq_16S # look at how many samples, OTU, taxa etc. 
+
+phyloseq_16s_bact<-subset_taxa(phyloseq_16S, Kingdom == "d__Bacteria")# remove archaea and unassigned
+phyloseq_16s_bact # look at how many samples, OTU, taxa etc. 
+
+
+phyloseq_16s_bact2 <-subset_taxa(phyloseq_16s_bact, Family!= "Mitochondria" | is.na(Family) & Class!="Chloroplast" | is.na(Class) )#this worked but only seemed to get rid of the mitochondrial family... still working on getting rid of chloroplast 
+phyloseq_16s_bact2
+
+#This is section of code to get rid of Chloroplast
+phyloseq_16s_bact3 <-subset_taxa(phyloseq_16s_bact2, Order!= "Chloroplast" | is.na(Family) & Class!="Chloroplast" | is.na(Class) )
+phyloseq_16s_bact3
+
+## Jonas code below for decontaminate
+# Designate negative control samples
+sample_data(phyloseq_16s_bact3)$is.neg <- sample_data(phyloseq_16s_bact3)$empo_2 == "Negative"
+
+# Identify contaminants with "prevalence" method and threshold set to 0.5
+contam.prev <- isContaminant(phyloseq_16s_bact3, 
+                             method = "prevalence",
+                             neg = "is.neg",
+                             threshold = 0.5)
+
+# Investigate how many ASVs were identified as contaminants (TRUE)
+table(contam.prev$contaminant)
+
+# Remove contaminant ASVs from phyloseq object
+
+phyloseq_16S_decom <- prune_taxa(!contam.prev$contaminant, phyloseq_16s_bact3)
+
+# Confirm contaminant ASVs have been removed 
+phyloseq_16S_decom
+
+# More filtering and removing to do... 
+
+phyloseq_16S_no_blank <- subset_samples(phyloseq_16S_decom, empo_2 == "Animal") #get rid of blanks/controls
+phyloseq_16S_no_blank # check how many samples, OTU, taxa etc. 
+
+phyloseq_16S_good_pronghorn <- subset_samples(phyloseq_16S_no_blank, data_issues == "n") #remove pronghorn with sketchy metadata
+phyloseq_16S_good_pronghorn # check how many samples, OTU, taxa etc
+```
+
+#Rarefy data
+
+```{r}
+
+# Look at how many reads are in each sample
+sort(colSums(otu_table(phyloseq_16s_bact))) #bacterial reads only before decontamination and all subsetting- 4 actual samples are below 5000 threshold, 5 blanks, 14.067, 14.028, 14.029, 13.116
+sort(colSums(otu_table(phyloseq_16s_bact2)))# same 4 are below 5000 in set without mitochondria
+sort(colSums(otu_table(phyloseq_16S_good_pronghorn))) # after docontam and all subsetting 6 actual samples below 5000 threshold... 14.067, 14.028, 14.029, 13.116, 13.025, 14.079 , set threshold at 4936 to keep 13.025 and 14.079 
+
+
+# Make a rarefaction curve to visualize ASV detection at different read coverage. 
+
+rarefaction_curve <- 
+  ggrare(phyloseq_16S_good_pronghorn, step = 100, color = "study_area", se = FALSE) +
+  geom_vline(xintercept = 4936, linetype = "dashed", size=1) +
+  theme_bw() 
+
+
+rarefaction_curve + theme(text = element_text(size = 14, family="Times New Roman")) + theme(plot.title = element_text(hjust = 0.5, size = 14)) + theme(legend.text = element_text(size = 14, color="black")) + theme(axis.text = element_text(size = 14, color= "black")) + theme(axis.title = element_text(size = 14, color= "black")) +scale_color_manual(values=friendly4_colors_green_purp, name="Study area") +labs(y="Species richness", x= "Sequence sample size")
+
+ggsave("rarefaction_curve.png", width=10, height=7, dpi=300) #save as png
+
+ggsave("rarefaction_curve.tiff", width=7, height=4, dpi=300)  #safe as tiff
+
+#This is the code to remove the 4 lower samples....
+
+##Below code worked... just the long way
+phyloseq_16S_rarify1 <- subset_samples(phyloseq_16S_good_pronghorn, capture_kit != "14-067")
+phyloseq_16S_rarify1#check
+phyloseq_16S_rarify2 <- subset_samples(phyloseq_16S_rarify1, capture_kit != "14-028")
+phyloseq_16S_rarify2 #check
+phyloseq_16S_rarify3 <- subset_samples(phyloseq_16S_rarify2, capture_kit != "14-029")
+phyloseq_16S_rarify3 #check
+phyloseq_16S_rarify4 <- subset_samples(phyloseq_16S_rarify3, capture_kit != "13-116")
+phyloseq_16S_rarify4 #check
+sort(colSums(otu_table(phyloseq_16S_rarify4)))#did I remove all low ones? check reads. YES
+
+
+# Rarefy samples to 4936 reads/sample... removed samples first so lowest is 4936
+phyloseq_16S_rare <- rarefy_even_depth(phyloseq_16S_rarify4, sample.size = 4936, rngseed = 223) #Note seed was 223
+sort(colSums(otu_table(phyloseq_16S_rare))) #check that all read counts are the same at 4966 and they are :)
+
+phyloseq_16S_rare## look at rarefied alpha object- check number of samples, taxa etc. 
+
+```
+#Alpha Diversity Metrics 
+
+```{r}
+###NOTE######
+#may need to re-run if we change out the rarify point
+
+
+alpha_full <- data.frame(estimate_richness(phyloseq_16S_rare,
+                                      split = TRUE,
+                                      measures = NULL)) #make richness table with diversity indices
+
+#create column in alpha_full to join by that is sample name, create new object with this column... alpha_full to alpha
+alpha<-alpha_full
+alpha<- tibble::rownames_to_column(alpha, "sample_name")#create column
+alpha$sample_name<-gsub("X","", as.character(alpha$sample_name))#remove x in sample name-where did that even come from??
+row.names(alpha) <- alpha$sample_name #rename rows without the x
+#join metadata to species richness data 
+meta<-data.frame(sample_data(phyloseq_16S_rare))
+alpha_meta<- left_join(alpha, meta) # this is the joined alpha richness and metadata file to run ANOVA/KW and make plots from etc. 
+
+alpha_meta1<-recode_as_na(alpha_meta, value= c("NR", "")) #renames it so that "NR" is actually recognized as NA for stats below
+View(alpha_meta1)
+
+
+```
+## mean and SD for each metric
+
+```{r}
+#Re-code alpha diversity columns to numeric in new data with proper NA's
+alpha_meta1$Shannon<-as.numeric(alpha_meta1$Shannon)
+alpha_meta1$Simpson<-as.numeric(alpha_meta1$Simpson)
+alpha_meta1$Observed<-as.numeric(alpha_meta1$Observed)
+
+alpha_meta_by_capture<-alpha_meta1%>% # find mean and SD for each metric for capture, use file without the NAs recoded because it will cause errors
+  group_by(capture_group)%>%
+  summarise(mean_Shannon=mean(Shannon), sd_Shannon=sd(Shannon), mean_Simpson=mean(Simpson), sd_Simpson=sd(Simpson), mean_Observed=mean(Observed), sd_Observed=sd(Observed))
+
+View(alpha_meta_by_capture)
+
+
+# calculate SE 
+
+#Nov 2013
+(alpha_meta_by_capture[1,3])/sqrt(110) #Shannon SE 0.025
+(alpha_meta_by_capture[1,5])/sqrt(110) # Simpson SE 0.001
+(alpha_meta_by_capture[1,7])/sqrt(110) #Observed SE 4.492
+
+#Feb 2014
+
+(alpha_meta_by_capture[2,3])/sqrt(11) #Shannon SE 0.079
+(alpha_meta_by_capture[2,5])/sqrt(11) # Simpson SE 0.003
+(alpha_meta_by_capture[2,7])/sqrt(11) #Observed SE 10.308
+
+#Nov 2013
+
+(alpha_meta_by_capture[3,3])/sqrt(34) #Shannon SE 0.051
+(alpha_meta_by_capture[3,5])/sqrt(34) # Simpson SE 0.003
+(alpha_meta_by_capture[3,7])/sqrt(34) #Observed SE 7.499
+
+
+alpha_meta_by_i80<-alpha_meta1%>% # find mean and SD for each metric for i80 
+  group_by(i_80)%>%
+  summarise(mean_Shannon=mean(Shannon), sd_Shannon=sd(Shannon), mean_Simpson=mean(Simpson), sd_Simpson=sd(Simpson), mean_Observed=mean(Observed), sd_Observed=sd(Observed))
+
+View(alpha_meta_by_i80)
+
+#Calculate SE
+
+#North
+(alpha_meta_by_i80[1,3])/sqrt(64) #Shannon SE 0.034
+
+(alpha_meta_by_i80[1,5])/sqrt(64) #Simpson SE 0.002
+
+(alpha_meta_by_i80[1,7])/sqrt(64) #Observed SE 5.653
+
+#South 
+
+(alpha_meta_by_i80[2,3])/sqrt(91) #Shannon SE 0.032
+
+(alpha_meta_by_i80[2,5])/sqrt(91) #Simpson SE 0.002
+
+(alpha_meta_by_i80[2,7])/sqrt(91) #Observed SE 5.016
+
+#Looking at distribution for each alpha diversity measure to get an idea
+
+hist(alpha_meta$Observed)
+hist(alpha_meta$Shannon)
+hist(alpha_meta$Simpson)
+
+```
+##Plots for alpha diversity
+### publication figures
+```{r}
+theme_update(plot.title = element_text(hjust = 0.5)) #center titles from here on
+
+##observed for I-80 edited for publication- note plots colors on a black and white boxplot 
+
+richness_i_80 <- 
+  ggplot(alpha_meta1, aes(i_80, Observed)) +
+  geom_boxplot(lwd=0.5) +
+  geom_jitter(aes(colour = study_area), width = 0, size=1) +
+  theme_bw() + theme(plot.title = element_text(hjust = 0.5))
+
+richness_i_80 + labs(title="C: Richness by Location Relative to I-80", x="I-80", y="Observed richness") + theme(text = element_text(size = 12, family= "Times New Roman")) + theme(legend.text = element_text(size = 12, color="black")) + theme(axis.text = element_text(size = 12, color= "black")) + theme(axis.title = element_text(size = 12, color= "black"))+  scale_color_manual(values=friendly4_colors_green_purp, name ="Study area", labels= c("Baggs", "Bitter Creek", "CDC", "Red Desert")) 
+
+ggsave("richness_i80_study_area.png", dpi=300, height=7, width= 10) #png file
+
+ggsave("richness_i80_study_area.tiff", dpi=300, height=2.9, width= 5) #tiff file
+
+#observed for capture group, centered title 
+richness_capture_group1 <- 
+  ggplot(alpha_meta1, aes(capture_group, Observed, color = capture_group)) +
+  geom_boxplot(lwd=0.5) +
+  geom_jitter(size=1, position = position_jitterdodge(jitter.width = 0)) +
+  theme_bw()+ theme(plot.title = element_text(hjust = 0.5))
+
+richness_capture_group1 + labs(title=" A: Richness by Capture Period", x= "Capture period", y= "Observed richness") + theme(text = element_text(size = 12, family= "Times New Roman")) + theme(legend.text = element_text(size = 12, color="black")) + theme(axis.text = element_text(size = 12, color= "black")) + theme(axis.title = element_text(size = 12, color= "black"))+scale_color_manual(values=friendly4_colors, labels=c("November 2013", "February 2014", "November 2014"), name="Capture period") +geom_point(size=1) + scale_x_discrete(labels=c("Nov. 2013", "Feb. 2014", "Nov. 2014"))
+
+ggsave("richness_capture_period1.png", height=7, width=10, dpi=300) #png file
+
+ggsave("richness_capture_period1.tiff", height=2.9, width=5, dpi=300) #tiff file 
+
+# observed for capture group with study area too ######### this one is what we want to show study area within capture group 
+richness_capture_group2 <- 
+  ggplot(alpha_meta1, aes(capture_group, Observed, color = study_area)) +
+  geom_boxplot(lwd=0.5) +
+  geom_jitter(size=1, position = position_jitterdodge(jitter.width = 0)) +
+  theme_bw()+ theme(plot.title = element_text(hjust = 0.5))
+
+richness_capture_group2 + labs(title="B: Richness by Capture Period and Study Area",  x= "Capture period", y= "Observed richness" )  + theme(text = element_text(size = 12, family= "Times New Roman")) + theme(legend.text = element_text(size = 12, color="black")) + theme(axis.text = element_text(size = 12, color= "black")) + theme(axis.title = element_text(size = 12, color= "black"))+scale_color_manual(values=friendly4_colors_green_purp, labels=c("Baggs", "Bitter Creek", "CDC", "Red Desert"), name="Study area")+ scale_x_discrete(labels=c("Nov. 2013", "Feb. 2014", "Nov. 2014")) 
+
+ggsave("richness_capture_period_study_area1.png", width=10, height=7, dpi= 300)
+
+ggsave("richness_capture_period_study_area1.tiff", width=5, height=2.95, dpi= 300)
+
+```
+
+
+### exploratory figures
+
+####Study area
+```{r}
+# note: the following few sets of alpha diversity figures were done as part of our early data analysis to get an idea of how our data was looking before we ran ANOVA/KW tests. These do not appear in the manuscript 
+
+theme_update(plot.title = element_text(hjust = 0.5)) #center titles from here on
+
+#Study area 
+#shannon for study area
+
+shannon_study_area <- 
+  ggplot(alpha_meta1, aes(study_area, Shannon, color = study_area)) +
+  geom_boxplot() +
+  geom_jitter(position = position_jitterdodge(jitter.width = 0)) +
+  theme_bw()
+
+shannon_study_area + labs(title="Shannon index by Study area") + theme(text=element_text(size=10)) 
+
+# Simpson for Study area
+simpson_study_area <- 
+  ggplot(alpha_meta1, aes(study_area, Simpson, color = study_area)) +
+  geom_boxplot() +
+  geom_jitter(position = position_jitterdodge(jitter.width = 0)) +
+  theme_bw()
+
+simpson_study_area + labs(title="Simpson index by Study area") + theme(text=element_text(size=10)) 
+#observed for study area
+richness_study_area <- 
+  ggplot(alpha_meta1, aes(study_area, Observed, color = study_area)) +
+  geom_boxplot() +
+  geom_jitter(position = position_jitterdodge(jitter.width = 0)) +
+  theme_bw()
+
+richness_study_area + labs(title="Richness by Study area") + theme(text=element_text(size=10))
+
+#I-80 
+#shannon for I80
+
+shannon_i_80<- 
+  ggplot(alpha_meta1, aes(i_80, Shannon, color = i_80)) +
+  geom_boxplot() +
+  geom_jitter(position = position_jitterdodge(jitter.width = 0)) +
+  theme_bw()
+
+shannon_i_80 + labs(title="Shannon index by I-80") + theme(text=element_text(size=10)) 
+
+# Simpson for I80
+simpson_i_80 <- 
+  ggplot(alpha_meta1, aes(i_80, Simpson, color = i_80)) +
+  geom_boxplot() +
+  geom_jitter(position = position_jitterdodge(jitter.width = 0)) +
+  theme_bw()
+
+simpson_i_80 + labs(title="Simpson index by I-80") + theme(text=element_text(size=10)) 
+#observed for I 80, centered title 
+richness_i_80 <- 
+  ggplot(alpha_meta1, aes(i_80, Observed, color = i_80)) +
+  geom_boxplot() +
+  geom_jitter(position = position_jitterdodge(jitter.width = 0)) +
+  theme_bw() + theme(plot.title = element_text(hjust = 0.5))
+
+richness_i_80 + labs(title="Richness by I-80") + theme(text=element_text(size=10))
+
+
+##observed for I-80 edited- this made 4 bars for 4 areas but then nested north south 
+richness_i_80 <- 
+  ggplot(alpha_meta1, aes(i_80, Observed, color = study_area)) +
+  geom_boxplot() +
+  geom_jitter(position = position_jitterdodge(jitter.width = 0)) +
+  theme_bw() + theme(plot.title = element_text(hjust = 0.5))
+
+richness_i_80 + labs(title="C: Richness by I-80") + theme(text=element_text(size=10))
+
+
+
+```
+
+####Weight
+```{r}
+##1 kg weight (grouped pronghorn by 1kg increments)
+#shannon for weight 1 kg
+shannon_weight_1kg <- 
+  ggplot(subset(alpha_meta1, weight_1kg %in% c("40", "41", "42", "43", "44", "45", "46", "47", "48", "49", "50", "51", "52", "53", "54", "55", "56", "57", "58", "59")), aes(weight_1kg, Shannon, color = weight_1kg)) +
+  geom_boxplot() +
+  geom_jitter(position = position_jitterdodge(jitter.width = 0)) +
+  theme_bw()
+
+shannon_weight_1kg + labs(title="Shannon for 1kg weight") + theme(text=element_text(size=10)) 
+
+# Simpson for weight 1kg
+simpson_weight_1kg <- 
+  ggplot(subset(alpha_meta1, weight_1kg %in% c("40", "41", "42", "43", "44", "45", "46", "47", "48", "49", "50", "51", "52", "53", "54", "55", "56", "57", "58", "59")), aes(weight_1kg, Simpson, color = weight_1kg)) +
+  geom_boxplot() +
+  geom_jitter(position = position_jitterdodge(jitter.width = 0)) +
+  theme_bw()
+
+simpson_weight_1kg + labs(title="Simpson for 1kg weight") + theme(text=element_text(size=10)) 
+
+#observed for weight 1kg
+richness_weight_1kg <- 
+  ggplot(subset(alpha_meta1, weight_1kg %in% c("40", "41", "42", "43", "44", "45", "46", "47", "48", "49", "50", "51", "52", "53", "54", "55", "56", "57", "58", "59")), aes(weight_1kg, Observed, color = weight_1kg)) +
+  geom_boxplot() +
+  geom_jitter(position = position_jitterdodge(jitter.width = 0)) +
+  theme_bw()
+
+richness_weight_1kg + labs(title="Richness for 1kg weight") + theme(text=element_text(size=10)) 
+
+#Weight percentiles (note this really means quartiles here)
+
+# Shannon for Weight percentiles 
+shannon_weight_percentiles <- 
+  ggplot(alpha_meta[alpha_meta$weight_percentiles != "NR", ], aes(weight_percentiles, Shannon, color = weight_percentiles)) +
+  geom_boxplot() +
+  geom_jitter(position = position_jitterdodge(jitter.width = 0)) +
+  theme_bw()
+
+shannon_weight_percentiles + labs(title="Shannon index by weight percentile") + theme(text=element_text(size=10)) 
+
+
+# Simpson for weight percentiles
+simpson_weight_percentiles <- 
+  ggplot(alpha_meta[alpha_meta$weight_percentiles != "NR", ], aes(weight_percentiles, Simpson, color = weight_percentiles)) +
+  geom_boxplot() +
+  geom_jitter(position = position_jitterdodge(jitter.width = 0)) +
+  theme_bw()
+
+simpson_weight_percentiles + labs(title="Simpson index by weight percentiles") + theme(text=element_text(size=10)) 
+#observed for weight percentiles, centered title
+richness_weight_percentiles <- 
+  ggplot(alpha_meta[alpha_meta$weight_percentiles != "NR", ], aes(weight_percentiles, Observed, color = weight_percentiles)) +
+  geom_boxplot() +
+  geom_jitter(position = position_jitterdodge(jitter.width = 0)) +
+  theme_bw() + theme(plot.title = element_text(hjust = 0.5))
+
+richness_weight_percentiles + labs(title="Richness by weight percentiles") + theme(text=element_text(size=10)) 
+
+# Weight 5kg (groups of 5kg increments)
+#shannon for weight 5kg
+
+shannon_weight_5kg <- 
+  ggplot(alpha_meta[alpha_meta$weight_5kg != "NR", ], aes(weight_5kg, Shannon, color = weight_5kg)) +
+  geom_boxplot() +
+  geom_jitter(position = position_jitterdodge(jitter.width = 0)) +
+  theme_bw()
+
+shannon_weight_5kg + labs(title="Shannon index by Weight 5kg") + theme(text=element_text(size=10)) 
+
+# Simpson for weight 5kg
+simpson_weight_5kg <- 
+  ggplot(alpha_meta[alpha_meta$weight_5kg != "NR", ], aes(weight_5kg, Simpson, color = weight_5kg)) +
+  geom_boxplot() +
+  geom_jitter(position = position_jitterdodge(jitter.width = 0)) +
+  theme_bw()
+
+simpson_weight_5kg + labs(title="Simpson index by Weight 5kg") + theme(text=element_text(size=10)) 
+#observed for weight 5kg
+richness_weight_5kg <- 
+  ggplot(alpha_meta[alpha_meta$weight_5kg != "NR", ], aes(weight_5kg, Observed, color = weight_5kg)) +
+  geom_boxplot() +
+  geom_jitter(position = position_jitterdodge(jitter.width = 0)) +
+  theme_bw()
+
+richness_weight_5kg + labs(title="Richness by Weight 5kg") + theme(text=element_text(size=10))
+```
+
+#### Diseases and mortality
+```{r}
+#EHD 
+#shannon for EHD
+
+shannon_ehd <- 
+  ggplot(alpha_meta[alpha_meta$ehd != "NR", ], aes(ehd, Shannon, color = ehd)) +
+  geom_boxplot() +
+  geom_jitter(position = position_jitterdodge(jitter.width = 0)) +
+  theme_bw()
+
+shannon_ehd + labs(title="Shannon index by EHD status") + theme(text=element_text(size=10)) 
+
+# Simpson for EHD
+simpson_ehd <- 
+  ggplot(alpha_meta[alpha_meta$ehd != "NR", ], aes(ehd, Simpson, color = ehd)) +
+  geom_boxplot() +
+  geom_jitter(position = position_jitterdodge(jitter.width = 0)) +
+  theme_bw()
+
+simpson_ehd + labs(title="Simpson index by EHD status") + theme(text=element_text(size=10)) 
+#observed for EHD, centered title 
+richness_ehd <- 
+  ggplot(alpha_meta[alpha_meta$ehd != "NR", ], aes(ehd, Observed, color = ehd)) +
+  geom_boxplot() +
+  geom_jitter(position = position_jitterdodge(jitter.width = 0)) +
+  theme_bw()+ theme(plot.title = element_text(hjust = 0.5))
+
+richness_ehd + labs(title=" Richness by EHD status") + theme(text=element_text(size=10))
+
+#BTV
+#shannon for BTV
+
+shannon_btv <- 
+  ggplot(alpha_meta[alpha_meta$btv != "NR", ], aes(btv, Shannon, color = btv)) +
+  geom_boxplot() +
+  geom_jitter(position = position_jitterdodge(jitter.width = 0)) +
+  theme_bw()
+
+shannon_btv + labs(title="Shannon index by BTV status") + theme(text=element_text(size=10)) 
+
+# Simpson for BtV
+simpson_btv <- 
+  ggplot(alpha_meta[alpha_meta$btv != "NR", ], aes(btv, Simpson, color = btv)) +
+  geom_boxplot() +
+  geom_jitter(position = position_jitterdodge(jitter.width = 0)) +
+  theme_bw()
+
+simpson_btv + labs(title="Simpson index by BTV status") + theme(text=element_text(size=10)) 
+#observed for BTV
+richness_btv <- 
+  ggplot(alpha_meta[alpha_meta$btv != "NR", ], aes(btv, Observed, color = btv)) +
+  geom_boxplot() +
+  geom_jitter(position = position_jitterdodge(jitter.width = 0)) +
+  theme_bw()
+
+richness_btv + labs(title="Richness by BTV status") + theme(text=element_text(size=10))
+
+##Mortality## (note: after consideration of this metric we removed it from all analyses as there were some issues with the metadata for this metric)
+#shannon for mortality
+
+shannon_mortality <- 
+  ggplot(alpha_meta, aes(mortality_code, Shannon, color = mortality_code)) +
+  geom_boxplot() +
+  geom_jitter(position = position_jitterdodge(jitter.width = 0)) +
+  theme_bw()
+
+shannon_mortality + labs(title="Shannon index by mortality") + theme(text=element_text(size=10)) 
+
+# Simpson for mortality
+simpson_mortality <- 
+  ggplot(alpha_meta, aes(mortality_code, Simpson, color = mortality_code)) +
+  geom_boxplot() +
+  geom_jitter(position = position_jitterdodge(jitter.width = 0)) +
+  theme_bw()
+
+simpson_mortality + labs(title="Simpson index by mortality") + theme(text=element_text(size=10)) 
+#observed for mortality
+richness_mortality <- 
+  ggplot(alpha_meta, aes(mortality_code, Observed, color = mortality_code)) +
+  geom_boxplot() +
+  geom_jitter(position = position_jitterdodge(jitter.width = 0)) +
+  theme_bw()
+
+richness_mortality + labs(title="Richness by mortality") + theme(text=element_text(size=10))
+
+```
+
+####Fat metrics
+```{r}
+#Max fat depth on rump 
+#shannon for max, centered title 
+shannon_max <- 
+  ggplot(alpha_meta[alpha_meta$max. != "NR", ], aes(max., Shannon, color = max.)) +
+  geom_boxplot() +
+  geom_jitter(position = position_jitterdodge(jitter.width = 0)) +
+  theme_bw()+ theme(plot.title = element_text(hjust = 0.5))
+
+shannon_max + labs(title="Shannon index by Max fat") + theme(text=element_text(size=10)) 
+
+# Simpson for max
+simpson_max <- 
+  ggplot(alpha_meta[alpha_meta$max. != "NR", ], aes(max., Simpson, color = max.)) +
+  geom_boxplot() +
+  geom_jitter(position = position_jitterdodge(jitter.width = 0)) +
+  theme_bw()
+
+simpson_max + labs(title="Simpson index by Max fat") + theme(text=element_text(size=10)) 
+#observed for max
+richness_max <- 
+  ggplot(alpha_meta[alpha_meta$max. != "NR", ], aes(max., Observed, color = max.)) +
+  geom_boxplot() +
+  geom_jitter(position = position_jitterdodge(jitter.width = 0)) +
+  theme_bw()
+
+richness_max + labs(title="Richness by Max fat") + theme(text=element_text(size=10))
+
+# SS LIgamenet depression  
+#shannon for ss_ligament
+
+shannon_ss_ligament <- 
+  ggplot(alpha_meta[alpha_meta$ss_ligament != "NR", ], aes(ss_ligament, Shannon, color = ss_ligament)) +
+  geom_boxplot() +
+  geom_jitter(position = position_jitterdodge(jitter.width = 0)) +
+  theme_bw()
+
+shannon_ss_ligament + labs(title="Shannon index by ss_ligament") + theme(text=element_text(size=10)) 
+
+# Simpson for ss_ligament
+simpson_ss_ligament <- 
+  ggplot(alpha_meta[alpha_meta$ss_ligament != "NR", ], aes(ss_ligament, Simpson, color = ss_ligament)) +
+  geom_boxplot() +
+  geom_jitter(position = position_jitterdodge(jitter.width = 0)) +
+  theme_bw()
+
+simpson_ss_ligament + labs(title="Simpson index by ss_ligament") + theme(text=element_text(size=10)) 
+#observed for ss_ligament, centered title 
+richness_ss_ligament <- 
+  ggplot(alpha_meta[alpha_meta$ss_ligament != "NR", ], aes(ss_ligament, Observed, color = ss_ligament)) +
+  geom_boxplot() +
+  geom_jitter(position = position_jitterdodge(jitter.width = 0)) +
+  theme_bw()+ theme(plot.title = element_text(hjust = 0.5))
+
+richness_ss_ligament + labs(title="Richness by ss_ligament") + theme(text=element_text(size=10))
+```
+####Age
+```{r}
+
+#Age by 1 # (1 year increments)
+
+#shannon for age by 1 year 
+shannon_age_by1 <- 
+  ggplot(alpha_meta[alpha_meta$age_by1 != "NR", ], aes(age_by1, Shannon, color = age_by1)) +
+  geom_boxplot() +
+  geom_jitter(position = position_jitterdodge(jitter.width = 0)) +
+  theme_bw()
+
+shannon_age_by1 + labs(title="Shannon index by age by 1 year ") + theme(text=element_text(size=10)) 
+
+# Simpson for age by 1 year 
+simpson_age_by1 <- 
+  ggplot(alpha_meta[alpha_meta$age_by1 != "NR", ], aes(age_by1, Simpson, color = age_by1)) +
+  geom_boxplot() +
+  geom_jitter(position = position_jitterdodge(jitter.width = 0)) +
+  theme_bw()
+
+simpson_age_by1 + labs(title="Simpson index by age by 1 year ") + theme(text=element_text(size=10)) 
+#observed for age by 1 year 
+richness_age_by1 <- 
+  ggplot(alpha_meta[alpha_meta$age_by1 != "NR", ], aes(age_by1, Observed, color = age_by1)) +
+  geom_boxplot() +
+  geom_jitter(position = position_jitterdodge(jitter.width = 0)) +
+  theme_bw()
+
+richness_age_by1 + labs(title="Richness by age by 1 year ") + theme(text=element_text(size=10))
+
+#Age by 2# (grouped by 2 year increments)
+
+#shannon for age by 2 years 
+shannon_age_by2 <- 
+  ggplot(alpha_meta[alpha_meta$age_by2 != "NR", ], aes(age_by2, Shannon, color = age_by2)) +
+  geom_boxplot() +
+  geom_jitter(position = position_jitterdodge(jitter.width = 0)) +
+  theme_bw()
+
+shannon_age_by2 + labs(title="Shannon index by age by 2 years ") + theme(text=element_text(size=10)) 
+
+# Simpson for age by 2 years 
+simpson_age_by2 <- 
+  ggplot(alpha_meta[alpha_meta$age_by2 != "NR", ], aes(age_by2, Simpson, color = age_by2)) +
+  geom_boxplot() +
+  geom_jitter(position = position_jitterdodge(jitter.width = 0)) +
+  theme_bw()
+
+simpson_age_by2 + labs(title="Simpson index by age by 2 years ") + theme(text=element_text(size=10)) 
+#observed for age by 2 years 
+richness_age_by2 <- 
+  ggplot(alpha_meta[alpha_meta$age_by2 != "NR", ], aes(age_by2, Observed, color = age_by2)) +
+  geom_boxplot() +
+  geom_jitter(position = position_jitterdodge(jitter.width = 0)) +
+  theme_bw()
+
+richness_age_by2 + labs(title="Richness by age by 2 years ") + theme(text=element_text(size=10))
+
+#Age percentiles# (what we really mean is quartiles)
+
+#shannon for age percentiles 
+shannon_age_percentiles  <- 
+  ggplot(alpha_meta[alpha_meta$age_percentiles  != "NR", ], aes(age_percentiles , Shannon, color = age_percentiles )) +
+  geom_boxplot() +
+  geom_jitter(position = position_jitterdodge(jitter.width = 0)) +
+  theme_bw()
+
+shannon_age_percentiles  + labs(title="Shannon index by age percentiles  ") + theme(text=element_text(size=10)) 
+
+# Simpson for age percentiles 
+simpson_age_percentiles  <- 
+  ggplot(alpha_meta[alpha_meta$age_percentiles  != "NR", ], aes(age_percentiles , Simpson, color = age_percentiles )) +
+  geom_boxplot() +
+  geom_jitter(position = position_jitterdodge(jitter.width = 0)) +
+  theme_bw()
+
+simpson_age_percentiles  + labs(title="Simpson index by age percentiles  ") + theme(text=element_text(size=10)) 
+#observed for age percentiles 
+richness_age_percentiles  <- 
+  ggplot(alpha_meta[alpha_meta$age_percentiles  != "NR", ], aes(age_percentiles , Observed, color = age_percentiles )) +
+  geom_boxplot() +
+  geom_jitter(position = position_jitterdodge(jitter.width = 0)) +
+  theme_bw()
+
+richness_age_percentiles  + labs(title="Richness by age percentiles  ") + theme(text=element_text(size=10))
+
+#Age young mid old#
+
+#shannon for age young mid old 
+shannon_age_y_m_o  <- 
+  ggplot(alpha_meta[alpha_meta$age_y_m_o  != "", ], aes(age_y_m_o , Shannon, color = age_y_m_o )) +
+  geom_boxplot() +
+  geom_jitter(position = position_jitterdodge(jitter.width = 0)) +
+  theme_bw()
+
+shannon_age_y_m_o  + labs(title="Shannon index by age young mid old  ") + theme(text=element_text(size=10)) 
+
+# Simpson for age young mid old 
+simpson_age_y_m_o  <- 
+  ggplot(alpha_meta[alpha_meta$age_y_m_o  != "", ], aes(age_y_m_o , Simpson, color = age_y_m_o )) +
+  geom_boxplot() +
+  geom_jitter(position = position_jitterdodge(jitter.width = 0)) +
+  theme_bw()
+
+simpson_age_y_m_o  + labs(title="Simpson index by age young mid old  ") + theme(text=element_text(size=10)) 
+#observed for age young mid old 
+richness_age_y_m_o  <- 
+  ggplot(alpha_meta[alpha_meta$age_y_m_o  != "", ], aes(age_y_m_o , Observed, color = age_y_m_o)) +
+  geom_boxplot() +
+  geom_jitter(position = position_jitterdodge(jitter.width = 0)) +
+  theme_bw()
+
+richness_age_y_m_o  + labs(title="Richness by age young mid old  ") + theme(text=element_text(size=10))
+
+# Corrected Age young mid old#
+
+#shannon for Corrected age young mid old 
+shannon_cor_age_y_m_o  <- 
+  ggplot(alpha_meta[alpha_meta$cor_age_y_m_o  != "", ], aes(cor_age_y_m_o , Shannon, color = cor_age_y_m_o )) +
+  geom_boxplot() +
+  geom_jitter(position = position_jitterdodge(jitter.width = 0)) +
+  theme_bw()
+
+shannon_cor_age_y_m_o  + labs(title="Shannon index by Corrected age young mid old  ") + theme(text=element_text(size=10)) 
+
+# Simpson for Corrected age young mid old 
+simpson_cor_age_y_m_o  <- 
+  ggplot(alpha_meta[alpha_meta$cor_age_y_m_o  != "", ], aes(cor_age_y_m_o , Simpson, color = cor_age_y_m_o )) +
+  geom_boxplot() +
+  geom_jitter(position = position_jitterdodge(jitter.width = 0)) +
+  theme_bw()
+
+simpson_cor_age_y_m_o  + labs(title="Simpson index by Corrected age young mid old  ") + theme(text=element_text(size=10)) 
+#observed for Corrected age young mid old 
+
+richness_cor_age_y_m_o  <- 
+  ggplot(alpha_meta[alpha_meta$cor_age_y_m_o  != "", ], aes(cor_age_y_m_o , Observed, color = cor_age_y_m_o)) +
+  geom_boxplot() +
+  geom_jitter(position = position_jitterdodge(jitter.width = 0)) +
+  theme_bw()
+
+richness_cor_age_y_m_o  + labs(title="Richness by Corrected age young mid old  ") + theme(text=element_text(size=10))
+```
+####Capture Groups
+ 
+```{r}
+#capture grouping 
+#shannon for capture group
+
+shannon_capture_group<- 
+  ggplot(alpha_meta, aes(capture_group, Shannon, color = capture_group)) +
+  geom_boxplot() +
+  geom_jitter(position = position_jitterdodge(jitter.width = 0)) +
+  theme_bw()
+
+shannon_capture_group<- 
+  ggplot(alpha_meta, aes(capture_group, Shannon, color = study_area)) +
+  geom_boxplot() +
+  geom_jitter(position = position_jitterdodge(jitter.width = 0)) +
+  theme_bw() ##  example here when we make color = something other than same as the aes to make multiple categories!! 
+
+shannon_capture_group + labs(title="Shannon index by Capture group") + theme(text=element_text(size=10)) 
+
+# Simpson for capture group
+simpson_capture_group <- 
+  ggplot(alpha_meta, aes(capture_group, Simpson, color = capture_group)) +
+  geom_boxplot() +
+  geom_jitter(position = position_jitterdodge(jitter.width = 0)) +
+  theme_bw()
+
+simpson_capture_group + labs(title="Simpson index by Capture group") + theme(text=element_text(size=10)) 
+
+#Observed for capture group
+
+richness_capture_group <- 
+  ggplot(alpha_meta1, aes(capture_group, Observed, color = capture_group)) +
+  geom_boxplot(lwd=0.5) +
+  geom_jitter(size=1, position = position_jitterdodge(jitter.width = 0)) +
+  theme_bw()+ theme(plot.title = element_text(hjust = 0.5))
+
+richness_capture_group + labs(title="Richness by Capture group") + theme(text=element_text(size=10))
+
+#capture season
+#Shannon for capture season 
+shannon_capture_season<- 
+  ggplot(alpha_meta, aes(capture_season, Shannon, color = capture_season)) +
+  geom_boxplot() +
+  geom_jitter(position = position_jitterdodge(jitter.width = 0)) +
+  theme_bw()
+
+shannon_capture_season + labs(title="Shannon index by Capture season") + theme(text=element_text(size=10)) 
+
+# Simpson for capture season
+simpson_capture_season <- 
+  ggplot(alpha_meta, aes(capture_season, Simpson, color = capture_season)) +
+  geom_boxplot() +
+  geom_jitter(position = position_jitterdodge(jitter.width = 0)) +
+  theme_bw()
+
+simpson_capture_season + labs(title="Simpson index by Capture season") + theme(text=element_text(size=10)) 
+#observed for capture season, centered title
+richness_capture_season <- 
+  ggplot(alpha_meta, aes(capture_season, Observed, color = capture_season)) +
+  geom_boxplot() +
+  geom_jitter(position = position_jitterdodge(jitter.width = 0)) +
+  theme_bw() + theme(plot.title = element_text(hjust = 0.5))
+
+richness_capture_season + labs(title="C: Richness by Capture season") + theme(text=element_text(size=10))
+```
+
+##ANOVAS for each metric
+###for publication
+```{r}
+#with NAs removed, only discrete variables 
+#study area 
+alpha_meta1$study_area<- as.factor(alpha_meta1$study_area)
+kruskal.test(alpha_meta1$Shannon, alpha_meta1$study_area)
+kruskal.test(alpha_meta1$Simpson, alpha_meta1$study_area)
+kruskal.test(alpha_meta1$Observed, alpha_meta1$study_area)
+
+#I80
+alpha_meta1$i_80<- as.factor(alpha_meta1$i_80)
+kruskal.test(alpha_meta1$Shannon, alpha_meta1$i_80)
+kruskal.test(alpha_meta1$Simpson, alpha_meta1$i_80)
+kruskal.test(alpha_meta1$Observed, alpha_meta1$i_80)
+
+# BTV
+alpha_meta1$btv<- as.factor(alpha_meta1$btv)
+kruskal.test(alpha_meta1$Shannon, alpha_meta1$btv)
+kruskal.test(alpha_meta1$Simpson, alpha_meta1$btv)
+kruskal.test(alpha_meta1$Observed, alpha_meta1$btv)
+
+#EHD
+alpha_meta1$ehd<- as.factor(alpha_meta1$ehd)
+kruskal.test(alpha_meta1$Shannon, alpha_meta1$ehd)
+kruskal.test(alpha_meta1$Simpson, alpha_meta1$ehd)
+kruskal.test(alpha_meta1$Observed, alpha_meta1$ehd)
+
+#capture periods
+alpha_meta1$capture_group<- as.factor(alpha_meta1$capture_group)
+kruskal.test(alpha_meta1$Shannon, alpha_meta1$capture_group)
+kruskal.test(alpha_meta1$Simpson, alpha_meta1$capture_group)
+kruskal.test(alpha_meta1$Observed, alpha_meta1$capture_group)
+
+#capture period with wilcox test for pairwise comparisons for capture period (not needed for i80 cause only 2)
+
+pairwise.wilcox.test(alpha_meta1$Shannon, alpha_meta1$capture_group, p.adjust.method = "bonferroni")
+pairwise.wilcox.test(alpha_meta1$Simpson, alpha_meta1$capture_group, p.adjust.method = "bonferroni")
+pairwise.wilcox.test(alpha_meta1$Observed, alpha_meta1$capture_group, p.adjust.method = "bonferroni")
+```
+
+
+###exploring the data
+```{r}
+#This chunk of code is what we initially did to explore data and check ANOVA assumptions. The outputs of this chunk are not in the manuscript, it was an exploratory stage
+
+View(alpha_meta1) #look at alpha meta to make sure its correct file
+
+
+###Note the code is there for each alpha metric and metadata metric to.... 1)run anova 2) look at a histogram for residuals of anova 3) do a shapiro and bartlett test to test assumptions - want both to be >.05! 3) run kruskal wallis test if assumptions not met
+
+#Study area
+anova_shannon_study_area<-aov(Shannon ~ study_area, data=alpha_meta1)
+summary(anova_shannon_study_area)
+residual_shannon_study_area<-residuals(anova_shannon_study_area)
+hist(residual_shannon_study_area)
+shapiro.test(residual_shannon_study_area)
+bartlett.test(alpha_meta1$Shannon, alpha_meta1$study_area)
+kruskal.test(alpha_meta1$Shannon, alpha_meta1$study_area)
+
+anova_simpson_study_area<-aov(Simpson ~ study_area, data=alpha_meta1)
+summary(anova_simpson_study_area)
+residual_simpson_study_area<-residuals(anova_simpson_study_area)
+hist(residual_simpson_study_area)
+shapiro.test(residual_simpson_study_area)
+bartlett.test(alpha_meta1$Simpson, alpha_meta1$study_area)
+kruskal.test(alpha_meta1$Simpson, alpha_meta1$study_area)
+
+anova_observed_study_area<-aov(Observed ~ study_area, data=alpha_meta1)
+summary(anova_observed_study_area)
+residual_observed_study_area<-residuals(anova_observed_study_area)
+hist(residual_observed_study_area)
+shapiro.test(residual_observed_study_area)
+bartlett.test(alpha_meta1$Observed, alpha_meta1$study_area)
+kruskal.test(alpha_meta1$Observed, alpha_meta1$study_area)
+
+#I80
+
+anova_shannon_i_80<-aov(Shannon ~ i_80, data=alpha_meta1)
+summary(anova_shannon_i_80)
+residual_shannon_i_80<-residuals(anova_shannon_i_80)
+hist(residual_shannon_i_80)
+shapiro.test(residual_shannon_i_80)
+bartlett.test(alpha_meta1$Shannon, alpha_meta1$i_80)
+kruskal.test(alpha_meta1$Shannon, alpha_meta1$i_80)
+
+anova_simpson_i_80<-aov(Simpson ~ i_80, data=alpha_meta1)
+summary(anova_simpson_i_80)
+residual_simpson_i_80<-residuals(anova_simpson_i_80)
+hist(residual_simpson_i_80)
+shapiro.test(residual_simpson_i_80)
+bartlett.test(alpha_meta1$Simpson, alpha_meta1$i_80)
+kruskal.test(alpha_meta1$Simpson, alpha_meta1$i_80)
+
+anova_observed_i_80<-aov(Observed ~ i_80, data=alpha_meta1)
+summary(anova_observed_i_80)
+residual_observed_i_80<-residuals(anova_observed_i_80)
+hist(residual_observed_i_80)
+shapiro.test(residual_observed_i_80)
+bartlett.test(alpha_meta1$Observed, alpha_meta1$i_80)
+kruskal.test(alpha_meta1$Observed, alpha_meta1$i_80)
+
+#BTV
+
+anova_shannon_btv<-aov(Shannon ~ btv, data=alpha_meta1)
+summary(anova_shannon_btv)
+residual_shannon_btv<-residuals(anova_shannon_btv)
+hist(residual_shannon_btv)
+shapiro.test(residual_shannon_btv)
+bartlett.test(alpha_meta1$Shannon, alpha_meta1$btv)
+kruskal.test(alpha_meta1$Shannon, alpha_meta1$btv)
+
+anova_simpson_btv<-aov(Simpson ~ btv, data=alpha_meta1)
+summary(anova_simpson_btv)
+residual_simpson_btv<-residuals(anova_simpson_btv)
+hist(residual_simpson_btv)
+shapiro.test(residual_simpson_btv)
+bartlett.test(alpha_meta1$Simpson, alpha_meta1$btv)
+kruskal.test(alpha_meta1$Simpson, alpha_meta1$btv)
+
+anova_observed_btv<-aov(Observed ~ btv, data=alpha_meta1)
+summary(anova_observed_btv)
+residual_observed_btv<-residuals(anova_observed_btv)
+hist(residual_observed_btv)
+shapiro.test(residual_observed_btv)
+bartlett.test(alpha_meta1$Observed, alpha_meta1$btv)
+kruskal.test(alpha_meta1$Observed, alpha_meta1$btv)
+
+#EHD
+
+anova_shannon_ehd<-aov(Shannon ~ ehd, data=alpha_meta1)
+summary(anova_shannon_ehd)
+residual_shannon_ehd<-residuals(anova_shannon_ehd)
+hist(residual_shannon_ehd)
+shapiro.test(residual_shannon_ehd)
+bartlett.test(alpha_meta1$Shannon, alpha_meta1$ehd)
+kruskal.test(alpha_meta1$Shannon, alpha_meta1$ehd)
+
+anova_simpson_ehd<-aov(Simpson ~ ehd, data=alpha_meta1)
+summary(anova_simpson_ehd)
+residual_simpson_ehd<-residuals(anova_simpson_ehd)
+hist(residual_simpson_ehd)
+shapiro.test(residual_simpson_ehd)
+bartlett.test(alpha_meta1$Simpson, alpha_meta1$ehd)
+kruskal.test(alpha_meta1$Simpson, alpha_meta1$ehd)
+
+anova_observed_ehd<-aov(Observed ~ ehd, data=alpha_meta1)
+summary(anova_observed_ehd)
+residual_observed_ehd<-residuals(anova_observed_ehd)
+hist(residual_observed_ehd)
+shapiro.test(residual_observed_ehd)
+bartlett.test(alpha_meta1$Observed, alpha_meta1$ehd)
+kruskal.test(alpha_meta1$Observed, alpha_meta1$ehd)
+
+#Mortality
+anova_shannon_mortality<-aov(Shannon ~ mortality_code, data=alpha_meta1)
+summary(anova_shannon_mortality)
+residual_shannon_mortality<-residuals(anova_shannon_mortality)
+hist(residual_shannon_mortality)
+shapiro.test(residual_shannon_mortality)
+bartlett.test(alpha_meta1$Shannon, alpha_meta1$mortality_code)
+kruskal.test(alpha_meta1$Shannon, alpha_meta1$mortality_code)
+
+anova_simpson_mortality<-aov(Simpson ~ mortality_code, data=alpha_meta1)
+summary(anova_simpson_mortality)
+residual_simpson_mortality<-residuals(anova_simpson_mortality)
+hist(residual_simpson_mortality)
+shapiro.test(residual_simpson_mortality)
+bartlett.test(alpha_meta1$Simpson, alpha_meta1$mortality_code)
+kruskal.test(alpha_meta1$Simpson, alpha_meta1$mortality_code)
+
+anova_observed_mortality<-aov(Observed ~ mortality_code, data=alpha_meta1)
+summary(anova_observed_mortality)
+residual_observed_mortality<-residuals(anova_observed_mortality)
+hist(residual_observed_mortality)
+shapiro.test(residual_observed_mortality)
+bartlett.test(alpha_meta1$Observed, alpha_meta1$mortality_code)
+kruskal.test(alpha_meta1$Observed, alpha_meta1$mortality_code)
+
+
+##AGE###
+#Age, young mid old
+anova_shannon_age_y_m_o<-aov(Shannon ~ age_y_m_o, data=alpha_meta1)
+summary(anova_shannon_age_y_m_o)
+residual_shannon_age_y_m_o<-residuals(anova_shannon_age_y_m_o)
+hist(residual_shannon_age_y_m_o)
+shapiro.test(residual_shannon_age_y_m_o)
+bartlett.test(alpha_meta1$Shannon, alpha_meta1$age_y_m_o)
+kruskal.test(alpha_meta1$Shannon, alpha_meta1$age_y_m_o)
+
+anova_simpson_age_y_m_o<-aov(Simpson ~ age_y_m_o, data=alpha_meta1)
+summary(anova_simpson_age_y_m_o)
+residual_simpson_age_y_m_o<-residuals(anova_simpson_age_y_m_o)
+hist(residual_simpson_age_y_m_o)
+shapiro.test(residual_simpson_age_y_m_o)
+bartlett.test(alpha_meta1$Simpson, alpha_meta1$age_y_m_o)
+kruskal.test(alpha_meta1$Simpson, alpha_meta1$age_y_m_o)
+
+anova_observed_age_y_m_o<-aov(Observed ~ age_y_m_o, data=alpha_meta1)
+summary(anova_observed_age_y_m_o)
+residual_observed_age_y_m_o<-residuals(anova_observed_age_y_m_o)
+hist(residual_observed_age_y_m_o)
+shapiro.test(residual_observed_age_y_m_o)
+bartlett.test(alpha_meta1$Observed, alpha_meta1$age_y_m_o)
+kruskal.test(alpha_meta1$Observed, alpha_meta1$age_y_m_o)
+
+# Age 1 year
+anova_shannon_age_by1<-aov(Shannon ~ age_by1, data=alpha_meta1)
+summary(anova_shannon_age_by1)
+residual_shannon_age_by1<-residuals(anova_shannon_age_by1)
+hist(residual_shannon_age_by1)
+shapiro.test(residual_shannon_age_by1)
+bartlett.test(alpha_meta1$Shannon, alpha_meta1$age_by1)
+kruskal.test(alpha_meta1$Shannon, alpha_meta1$age_by1)
+
+anova_simpson_age_by1<-aov(Simpson ~ age_by1, data=alpha_meta1)
+summary(anova_simpson_age_by1)
+residual_simpson_age_by1<-residuals(anova_simpson_age_by1)
+hist(residual_simpson_age_by1)
+shapiro.test(residual_simpson_age_by1)
+bartlett.test(alpha_meta1$Simpson, alpha_meta1$age_by1)
+kruskal.test(alpha_meta1$Simpson, alpha_meta1$age_by1)
+
+anova_observed_age_by1<-aov(Observed ~ age_by1, data=alpha_meta1)
+summary(anova_observed_age_by1)
+residual_observed_age_by1<-residuals(anova_observed_age_by1)
+hist(residual_observed_age_by1)
+shapiro.test(residual_observed_age_by1)
+bartlett.test(alpha_meta1$Observed, alpha_meta1$age_by1)
+kruskal.test(alpha_meta1$Observed, alpha_meta1$age_by1)
+
+# Age 2 year
+anova_shannon_age_by2<-aov(Shannon ~ age_by2, data=alpha_meta1)
+summary(anova_shannon_age_by2)
+residual_shannon_age_by2<-residuals(anova_shannon_age_by2)
+hist(residual_shannon_age_by2)
+shapiro.test(residual_shannon_age_by2)
+bartlett.test(alpha_meta1$Shannon, alpha_meta1$age_by2)
+kruskal.test(alpha_meta1$Shannon, alpha_meta1$age_by2)
+
+anova_simpson_age_by2<-aov(Simpson ~ age_by2, data=alpha_meta1)
+summary(anova_simpson_age_by2)
+residual_simpson_age_by2<-residuals(anova_simpson_age_by2)
+hist(residual_simpson_age_by2)
+shapiro.test(residual_simpson_age_by2)
+bartlett.test(alpha_meta1$Simpson, alpha_meta1$age_by2)
+kruskal.test(alpha_meta1$Simpson, alpha_meta1$age_by2)
+
+anova_observed_age_by2<-aov(Observed ~ age_by2, data=alpha_meta1)
+summary(anova_observed_age_by2)
+residual_observed_age_by2<-residuals(anova_observed_age_by2)
+hist(residual_observed_age_by2)
+shapiro.test(residual_observed_age_by2)
+bartlett.test(alpha_meta1$Observed, alpha_meta1$age_by2)
+kruskal.test(alpha_meta1$Observed, alpha_meta1$age_by2)
+
+# Age percentiles (meaning quartiles)
+anova_shannon_age_percentiles<-aov(Shannon ~ age_percentiles, data=alpha_meta1)
+summary(anova_shannon_age_percentiles)
+residual_shannon_age_percentiles<-residuals(anova_shannon_age_percentiles)
+hist(residual_shannon_age_percentiles)
+shapiro.test(residual_shannon_age_percentiles)
+bartlett.test(alpha_meta1$Shannon, alpha_meta1$age_percentiles)
+kruskal.test(alpha_meta1$Shannon, alpha_meta1$age_percentiles)
+
+anova_simpson_age_percentiles<-aov(Simpson ~ age_percentiles, data=alpha_meta1)
+summary(anova_simpson_age_percentiles)
+residual_simpson_age_percentiles<-residuals(anova_simpson_age_percentiles)
+hist(residual_simpson_age_percentiles)
+shapiro.test(residual_simpson_age_percentiles)
+bartlett.test(alpha_meta1$Simpson, alpha_meta1$age_percentiles)
+kruskal.test(alpha_meta1$Simpson, alpha_meta1$age_percentiles)
+
+anova_observed_age_percentiles<-aov(Observed ~ age_percentiles, data=alpha_meta1)
+summary(anova_observed_age_percentiles)
+residual_observed_age_percentiles<-residuals(anova_observed_age_percentiles)
+hist(residual_observed_age_percentiles)
+shapiro.test(residual_observed_age_percentiles)
+bartlett.test(alpha_meta1$Observed, alpha_meta1$age_percentiles)
+kruskal.test(alpha_meta1$Observed, alpha_meta1$age_percentiles)
+
+###WEIGHT###
+#weight percentiles (meaning quartiles)
+anova_shannon_weight_percentiles<-aov(Shannon ~ weight_percentiles, data=alpha_meta1)
+summary(anova_shannon_weight_percentiles)
+residual_shannon_weight_percentiles<-residuals(anova_shannon_weight_percentiles)
+hist(residual_shannon_weight_percentiles)
+shapiro.test(residual_shannon_weight_percentiles)
+bartlett.test(alpha_meta1$Shannon, alpha_meta1$weight_percentiles)
+kruskal.test(alpha_meta1$Shannon, alpha_meta1$weight_percentiles)
+
+anova_simpson_weight_percentiles<-aov(Simpson ~ weight_percentiles, data=alpha_meta1)
+summary(anova_simpson_weight_percentiles)
+residual_simpson_weight_percentiles<-residuals(anova_simpson_weight_percentiles)
+hist(residual_simpson_weight_percentiles)
+shapiro.test(residual_simpson_weight_percentiles)
+bartlett.test(alpha_meta1$Simpson, alpha_meta1$weight_percentiles)
+kruskal.test(alpha_meta1$Simpson, alpha_meta1$weight_percentiles)
+
+anova_observed_weight_percentiles<-aov(Observed ~ weight_percentiles, data=alpha_meta1)
+summary(anova_observed_weight_percentiles)
+residual_observed_weight_percentiles<-residuals(anova_observed_weight_percentiles)
+hist(residual_observed_weight_percentiles)
+shapiro.test(residual_observed_weight_percentiles)
+bartlett.test(alpha_meta1$Observed, alpha_meta1$weight_percentiles)
+kruskal.test(alpha_meta1$Observed, alpha_meta1$weight_percentiles)
+
+# 5kg weight
+anova_shannon_weight_5kg<-aov(Shannon ~ weight_5kg, data=alpha_meta1)
+summary(anova_shannon_weight_5kg)
+residual_shannon_weight_5kg<-residuals(anova_shannon_weight_5kg)
+hist(residual_shannon_weight_5kg)
+shapiro.test(residual_shannon_weight_5kg)
+bartlett.test(alpha_meta1$Shannon, alpha_meta1$weight_5kg)
+kruskal.test(alpha_meta1$Shannon, alpha_meta1$weight_5kg)
+
+anova_simpson_weight_5kg<-aov(Simpson ~ weight_5kg, data=alpha_meta1)
+summary(anova_simpson_weight_5kg)
+residual_simpson_weight_5kg<-residuals(anova_simpson_weight_5kg)
+hist(residual_simpson_weight_5kg)
+shapiro.test(residual_simpson_weight_5kg)
+bartlett.test(alpha_meta1$Simpson, alpha_meta1$weight_5kg)
+kruskal.test(alpha_meta1$Simpson, alpha_meta1$weight_5kg)
+
+anova_observed_weight_5kg<-aov(Observed ~ weight_5kg, data=alpha_meta1)
+summary(anova_observed_weight_5kg)
+residual_observed_weight_5kg<-residuals(anova_observed_weight_5kg)
+hist(residual_observed_weight_5kg)
+shapiro.test(residual_observed_weight_5kg)
+bartlett.test(alpha_meta1$Observed, alpha_meta1$weight_5kg)
+kruskal.test(alpha_meta1$Observed, alpha_meta1$weight_5kg)
+
+#Weight 1kg
+
+anova_shannon_weight_1kg<-aov(Shannon ~ weight_1kg, data=alpha_meta1)
+summary(anova_shannon_weight_1kg)
+residual_shannon_weight_1kg<-residuals(anova_shannon_weight_1kg)
+hist(residual_shannon_weight_1kg)
+shapiro.test(residual_shannon_weight_1kg)
+#bartlett.test(alpha_meta1$Shannon, alpha_meta1$weight_1kg) #cant run b/c groups of 1 
+kruskal.test(alpha_meta1$Shannon, alpha_meta1$weight_1kg)
+
+anova_simpson_weight_1kg<-aov(Simpson ~ weight_1kg, data=alpha_meta1)
+summary(anova_simpson_weight_1kg)
+residual_simpson_weight_1kg<-residuals(anova_simpson_weight_1kg)
+hist(residual_simpson_weight_1kg)
+shapiro.test(residual_simpson_weight_1kg)
+#bartlett.test(alpha_meta1$Simpson, alpha_meta1$weight_1kg)#cant run b/c groups of 1 
+kruskal.test(alpha_meta1$Simpson, alpha_meta1$weight_1kg)
+
+anova_observed_weight_1kg<-aov(Observed ~ weight_1kg, data=alpha_meta1)
+summary(anova_observed_weight_1kg)
+residual_observed_weight_1kg<-residuals(anova_observed_weight_1kg)
+hist(residual_observed_weight_1kg)
+shapiro.test(residual_observed_weight_1kg)
+#bartlett.test(alpha_meta1$Observed, alpha_meta1$weight_1kg)#cant run b/c groups of 1 
+kruskal.test(alpha_meta1$Observed, alpha_meta1$weight_1kg)
+
+#body condition metrics
+#ss_ligament
+anova_shannon_ss_ligament<-aov(Shannon ~ ss_ligament, data=alpha_meta1)
+summary(anova_shannon_ss_ligament)
+residual_shannon_ss_ligament<-residuals(anova_shannon_ss_ligament)
+hist(residual_shannon_ss_ligament)
+shapiro.test(residual_shannon_ss_ligament)
+#bartlett.test(alpha_meta1$Shannon, alpha_meta1$ss_ligament)
+kruskal.test(alpha_meta1$Shannon, alpha_meta1$ss_ligament)
+
+anova_simpson_ss_ligament<-aov(Simpson ~ ss_ligament, data=alpha_meta1)
+summary(anova_simpson_ss_ligament)
+residual_simpson_ss_ligament<-residuals(anova_simpson_ss_ligament)
+hist(residual_simpson_ss_ligament)
+shapiro.test(residual_simpson_ss_ligament)
+#bartlett.test(alpha_meta1$Simpson, alpha_meta1$ss_ligament)
+kruskal.test(alpha_meta1$Simpson, alpha_meta1$ss_ligament)
+
+anova_observed_ss_ligament<-aov(Observed ~ ss_ligament, data=alpha_meta1)
+summary(anova_observed_ss_ligament)
+residual_observed_ss_ligament<-residuals(anova_observed_ss_ligament)
+hist(residual_observed_ss_ligament)
+shapiro.test(residual_observed_ss_ligament)
+#bartlett.test(alpha_meta1$Observed, alpha_meta1$ss_ligament)
+kruskal.test(alpha_meta1$Observed, alpha_meta1$ss_ligament)
+
+#max fat
+anova_shannon_max.<-aov(Shannon ~ max., data=alpha_meta1)
+summary(anova_shannon_max.)
+residual_shannon_max.<-residuals(anova_shannon_max.)
+hist(residual_shannon_max.)
+shapiro.test(residual_shannon_max.)
+bartlett.test(alpha_meta1$Shannon, alpha_meta1$max.)
+kruskal.test(alpha_meta1$Shannon, alpha_meta1$max.)
+
+anova_simpson_max.<-aov(Simpson ~ max., data=alpha_meta1)
+summary(anova_simpson_max.)
+residual_simpson_max.<-residuals(anova_simpson_max.)
+hist(residual_simpson_max.)
+shapiro.test(residual_simpson_max.)
+bartlett.test(alpha_meta1$Simpson, alpha_meta1$max.)
+kruskal.test(alpha_meta1$Simpson, alpha_meta1$max.)
+
+anova_observed_max.<-aov(Observed ~ max., data=alpha_meta1)
+summary(anova_observed_max.)
+residual_observed_max.<-residuals(anova_observed_max.)
+hist(residual_observed_max.)
+shapiro.test(residual_observed_max.)
+bartlett.test(alpha_meta1$Observed, alpha_meta1$max.)
+kruskal.test(alpha_meta1$Observed, alpha_meta1$max.)
+
+# capture group
+anova_shannon_capture_group<-aov(Shannon ~ capture_group, data=alpha_meta1)
+summary(anova_shannon_capture_group)
+residual_shannon_capture_group<-residuals(anova_shannon_capture_group)
+hist(residual_shannon_capture_group)
+shapiro.test(residual_shannon_capture_group)
+bartlett.test(alpha_meta1$Shannon, alpha_meta1$capture_group)
+kruskal.test(alpha_meta1$Shannon, alpha_meta1$capture_group)
+
+anova_simpson_capture_group<-aov(Simpson ~ capture_group, data=alpha_meta1)
+summary(anova_simpson_capture_group)
+residual_simpson_capture_group<-residuals(anova_simpson_capture_group)
+hist(residual_simpson_capture_group)
+shapiro.test(residual_simpson_capture_group)
+bartlett.test(alpha_meta1$Simpson, alpha_meta1$capture_group)
+kruskal.test(alpha_meta1$Simpson, alpha_meta1$capture_group)
+
+anova_observed_capture_group<-aov(Observed ~ capture_group, data=alpha_meta1)
+summary(anova_observed_capture_group)
+residual_observed_capture_group<-residuals(anova_observed_capture_group)
+hist(residual_observed_capture_group)
+shapiro.test(residual_observed_capture_group)
+bartlett.test(alpha_meta1$Observed, alpha_meta1$capture_group)
+kruskal.test(alpha_meta1$Observed, alpha_meta1$capture_group)
+
+#capture season
+anova_shannon_capture_season<-aov(Shannon ~ capture_season, data=alpha_meta1)
+summary(anova_shannon_capture_season)
+residual_shannon_capture_season<-residuals(anova_shannon_capture_season)
+hist(residual_shannon_capture_season)
+shapiro.test(residual_shannon_capture_season)
+bartlett.test(alpha_meta1$Shannon, alpha_meta1$capture_season)
+kruskal.test(alpha_meta1$Shannon, alpha_meta1$capture_season)
+
+anova_simpson_capture_season<-aov(Simpson ~ capture_season, data=alpha_meta)
+summary(anova_simpson_capture_season)
+residual_simpson_capture_season<-residuals(anova_simpson_capture_season)
+hist(residual_simpson_capture_season)
+shapiro.test(residual_simpson_capture_season)
+bartlett.test(alpha_meta1$Simpson, alpha_meta1$capture_season)
+kruskal.test(alpha_meta1$Simpson, alpha_meta1$capture_season)
+
+anova_observed_capture_season<-aov(Observed ~ capture_season, data=alpha_meta1)
+summary(anova_observed_capture_season)
+residual_observed_capture_season<-residuals(anova_observed_capture_season)
+hist(residual_observed_capture_season)
+shapiro.test(residual_observed_capture_season)
+bartlett.test(alpha_meta1$Observed, alpha_meta1$capture_season)
+kruskal.test(alpha_meta1$Observed, alpha_meta1$capture_season)
+
+```
+## Alpha Correlations
+```{r}
+
+#Subset to variables we want to look at 
+
+alpha_meta_num = subset(alpha_meta1, select= c("sample_name", "Observed", "Shannon", "Simpson", "ss_ligament", "adj_age", "cor_age", "max.", "body_weight"))
+View(alpha_meta_num)#check it
+
+#make all numeric
+
+alpha_meta_num$ss_ligament<- as.numeric(alpha_meta_num$ss_ligament)
+alpha_meta_num$adj_age<- as.numeric(alpha_meta_num$adj_age)
+alpha_meta_num$max.<- as.numeric(alpha_meta_num$max.)
+alpha_meta_num$cor_age<- as.numeric(alpha_meta_num$cor_age)
+alpha_meta_num$body_weight<- as.numeric(alpha_meta_num$body_weight)
+
+row.names(alpha_meta_num) <- alpha_meta_num$sample_name #make sample name row name 
+alpha_meta_num = subset(alpha_meta_num, select =  -c(sample_name)) #get rid of extra column we don't want to correlate
+
+
+#run correlations
+
+cor_matrix_alpha<-cor(alpha_meta_num, use="complete.obs", method="spearman")#makes correlation matrix
+cor_matrix_alpha2<-rcorr(as.matrix(alpha_meta_num), type = "spearman") #calculate significance
+cor_matrix_alpha2 # shows matrix, number samples used, and p values
+
+#Code writes function## from here: http://www.sthda.com/english/wiki/correlation-matrix-formatting-and-visualization
+
+flattenCorrMatrix <- function(cormat, pmat) {
+  ut <- upper.tri(cormat)
+  data.frame(
+    row = rownames(cormat)[row(cormat)[ut]],
+    column = rownames(cormat)[col(cormat)[ut]],
+    cor  =(cormat)[ut],
+    p = pmat[ut]
+    )
+}
+
+#uses function
+cor_matrix_table_spearman_alpha<-flattenCorrMatrix(cor_matrix_alpha2$r, cor_matrix_alpha2$P) # uses created function above to make better to read table
+View(cor_matrix_table_spearman_alpha)
+spearman_table_alpha<-as.data.frame(cor_matrix_table_spearman_alpha)#make dataframe
+
+View(spearman_table_alpha)
+```
+## lm- multiple predictors
+
+```{r}
+View(alpha_meta1)
+alpha_meta1_numbers<- alpha_meta1 #create new file to make numeric and coded for categorical ones
+
+#make my number values of interest numeric
+alpha_meta1_numbers$ss_ligament<-as.numeric(alpha_meta1_numbers$ss_ligament)
+alpha_meta1_numbers$max.<-as.numeric(alpha_meta1_numbers$max.)
+alpha_meta1_numbers$adj_age<-as.numeric(alpha_meta1_numbers$adj_age)
+alpha_meta1_numbers$body_weight<-as.numeric(alpha_meta1_numbers$body_weight)
+
+#code zeros and ones for btv, ehd, i80, capture
+
+alpha_meta1_numbers<- dummy_cols(alpha_meta1_numbers, select_columns = c("btv", "ehd", "capture_group", "i_80"))# r will actually do this for us too, but with these we can specify what we want our 0 or one to be if we want
+
+View(alpha_meta1_numbers) #check them
+
+##Shannon diversity
+
+#only includes the November capture groups because February captures had no ss
+shannon_lm_m1<-lm(Shannon ~ ss_ligament + adj_age + body_weight + i_80_North + capture_group + btv_Positive + ehd_Positive,   data = alpha_meta1_numbers)
+
+summary(shannon_lm_m1) #overall model is not significant, but capture_group2014_N is
+
+hist(residuals(shannon_lm_m1)) #slight left skew but not terrible... 
+shapiro.test(residuals(shannon_lm_m1)) # p= 0.08609- might be OK...
+
+plot(shannon_lm_m1)#residuals vs fitted and scale-location have 2 groups
+
+#if we take out ss we can look at all capture periods
+shannon_lm_m2<-lm(Shannon ~ adj_age + body_weight + i_80_North + capture_group + btv_Positive + ehd_Positive,   data = alpha_meta1_numbers)
+
+summary(shannon_lm_m2) #dummy variables for capture are all significant, overall model is significant
+
+hist(residuals(shannon_lm_m2)) #slight left skew, maybe not terrible
+shapiro.test(residuals(shannon_lm_m2)) # p= 0.0272, not normal
+
+plot(shannon_lm_m2)#residuals vs fitted and scale-location have a few groups- not sure about that 
+
+#include study area, not i_80 and capture period... this seems to work and include all study areas
+shannon_lm_m3<-lm(Shannon ~ ss_ligament + adj_age + body_weight +  study_area + btv_Positive + ehd_Positive,   data = alpha_meta1_numbers)
+
+summary(shannon_lm_m3) #model is not significant, study area_CDC is different marginally
+
+hist(residuals(shannon_lm_m3)) #slight left skew here.... 
+shapiro.test(residuals(shannon_lm_m3)) # p= 0.055- might be OK..
+
+plot(shannon_lm_m3) #residuals vs fitted and scale-location have 2 groups 
+
+
+## Simpson diversity
+
+#only includes the November capture groups because February captures had no ss
+simpson_lm_m1<-lm(Simpson ~ ss_ligament + adj_age + body_weight + i_80_North + capture_group + btv_Positive + ehd_Positive,   data = alpha_meta1_numbers)
+
+summary(simpson_lm_m1) #overall model is significant, capture_group2014_N is significant
+
+hist(residuals(simpson_lm_m1)) #not normal at all! very left skewed
+shapiro.test(residuals(simpson_lm_m1)) #data are not normal p= 3.3 e-10 
+
+plot(simpson_lm_m1) #residuals vs fitted and scale-location have 2 groups 
+
+#if we take out ss we can look at all capture periods
+simpson_lm_m2<-lm(Simpson ~ adj_age + body_weight + i_80_North + capture_group + btv_Positive + ehd_Positive,   data = alpha_meta1_numbers)
+
+summary(simpson_lm_m2) # only capture group 2014N is significant, overall model is significant 
+
+hist(residuals(simpson_lm_m2)) #not normal at all! very left skewed
+shapiro.test(residuals(simpson_lm_m2)) #data are not normal p= 1.3 e-10 
+
+plot(simpson_lm_m2)  #residuals vs fitted and scale-location have 2 groups 
+
+#include study area, not i_80 and capture period... this seems to work and include all study areas
+simpson_lm_m3<-lm(Simpson ~ ss_ligament + adj_age + body_weight +  study_area + btv_Positive + ehd_Positive,   data = alpha_meta1_numbers)
+
+summary(simpson_lm_m3)#model not significant, no significant variables
+
+hist(residuals(simpson_lm_m3)) #not normal at all! very left skewed
+shapiro.test(residuals(simpson_lm_m3)) #data are not normal p= 1.75 e-10 
+
+plot(simpson_lm_m3) # looks ok except the QQ-plot
+
+## Observed diversity
+
+#only includes the November capture groups because February captures had no ss
+observed_lm_m1<-lm(Observed ~ ss_ligament + adj_age + body_weight + i_80_North + capture_group + btv_Positive + ehd_Positive,   data = alpha_meta1_numbers)
+
+summary(observed_lm_m1) #model is not significant, no significant variables  
+
+hist(residuals(observed_lm_m1)) #looks normal-ish
+
+plot(observed_lm_m1) #actually looks OK 
+
+shapiro.test(residuals(observed_lm_m1)) #data are normal p=0.63
+
+#if we take out ss we can look at all capture periods
+observed_lm_m2<-lm(Observed ~ adj_age + body_weight + i_80_North + capture_group + btv_Positive + ehd_Positive,   data = alpha_meta1_numbers)
+
+summary(observed_lm_m2) #overall model is significant, and capture_group_feb2014 is significant 
+
+hist(residuals(observed_lm_m2)) #looks normal-ish
+
+plot(observed_lm_m2) # looks ok 
+
+shapiro.test(residuals(observed_lm_m2)) #data are normal p= 0.7756
+
+#include study area, not i_80 and capture period... this seems to work and include all study areas
+observed_lm_m3<-lm(Observed ~ ss_ligament + adj_age + body_weight +  study_area + btv_Positive + ehd_Positive,   data = alpha_meta1_numbers)
+
+summary(observed_lm_m3) #model not significant, no variables were significant 
+
+hist(residuals(observed_lm_m3))
+
+plot(observed_lm_m3) #looks ok
+
+shapiro.test(residuals(observed_lm_m3)) #data are normal p= 0.4366
+
+```
+
+## Subsets I-80N/S
+```{r}
+View(alpha_meta1)
+
+alpha_meta1_north <- subset(alpha_meta1, i_80 == "North") # subset only north of I-80 pronghorn
+
+View(alpha_meta1_north) #check
+
+alpha_meta1_south <- subset(alpha_meta1, i_80 == "South") # subset only south of I-80 pronghorn
+
+View(alpha_meta1_south) #check
+
+##Subset for correlations
+
+#Subset to variables we want to look at 
+
+alpha_meta_num1 = subset(alpha_meta1, select= c("sample_name", "Observed", "Shannon", "Simpson", "ss_ligament", "adj_age", "cor_age", "max.", "body_weight", "i_80"))
+View(alpha_meta_num1)#check it
+
+row.names(alpha_meta_num1) <- alpha_meta_num1$sample_name #make sample name row name 
+alpha_meta_num1 = subset(alpha_meta_num1, select =  -c(sample_name)) #get rid of extra column we don't want to correlate
+
+#make all numeric
+
+alpha_meta_num1$ss_ligament<- as.numeric(alpha_meta_num1$ss_ligament)
+alpha_meta_num1$adj_age<- as.numeric(alpha_meta_num1$adj_age)
+alpha_meta_num1$max.<- as.numeric(alpha_meta_num1$max.)
+alpha_meta_num1$cor_age<- as.numeric(alpha_meta_num1$cor_age)
+alpha_meta_num1$body_weight<- as.numeric(alpha_meta_num1$body_weight)
+
+alpha_meta_num_north <- subset(alpha_meta_num1, i_80 == "North") # subset only north of I-80 pronghorn
+
+alpha_meta_num_north = subset(alpha_meta_num_north, select =  -c(i_80)) #get rid of i80 column we don't want to correlate
+
+View(alpha_meta_num_north) #check
+
+alpha_meta_num_south <- subset(alpha_meta_num1, i_80 == "South") # subset only south of I-80 pronghorn
+
+alpha_meta_num_south = subset(alpha_meta_num_south, select =  -c(i_80)) #get rid of i80 column we don't want to correlate
+
+View(alpha_meta_num_south) #check
+
+
+########  North #######
+
+###### KW tests ######
+
+#study area 
+alpha_meta1_north$study_area<- as.factor(alpha_meta1_north$study_area)
+kruskal.test(alpha_meta1_north$Shannon, alpha_meta1_north$study_area)
+kruskal.test(alpha_meta1_north$Simpson, alpha_meta1_north$study_area)
+kruskal.test(alpha_meta1_north$Observed, alpha_meta1_north$study_area)
+
+# BTV
+alpha_meta1_north$btv<- as.factor(alpha_meta1_north$btv)
+kruskal.test(alpha_meta1_north$Shannon, alpha_meta1_north$btv)
+kruskal.test(alpha_meta1_north$Simpson, alpha_meta1_north$btv)
+kruskal.test(alpha_meta1_north$Observed, alpha_meta1_north$btv)
+
+#EHD
+alpha_meta1_north$ehd<- as.factor(alpha_meta1_north$ehd)
+kruskal.test(alpha_meta1_north$Shannon, alpha_meta1_north$ehd)
+kruskal.test(alpha_meta1_north$Simpson, alpha_meta1_north$ehd)
+kruskal.test(alpha_meta1_north$Observed, alpha_meta1_north$ehd)
+
+#capture periods
+alpha_meta1_north$capture_group<- as.factor(alpha_meta1_north$capture_group)
+kruskal.test(alpha_meta1_north$Shannon, alpha_meta1_north$capture_group)
+kruskal.test(alpha_meta1_north$Simpson, alpha_meta1_north$capture_group)
+kruskal.test(alpha_meta1_north$Observed, alpha_meta1_north$capture_group)
+
+#test what is different 
+pairwise.wilcox.test(alpha_meta1_north$Shannon, alpha_meta1_north$capture_group, p.adjust.method = "bonferroni")
+pairwise.wilcox.test(alpha_meta1_north$Simpson, alpha_meta1_north$capture_group, p.adjust.method = "bonferroni")
+pairwise.wilcox.test(alpha_meta1_north$Observed, alpha_meta1_north$capture_group, p.adjust.method = "bonferroni")
+
+
+
+### Correlations
+
+
+cor_matrix_north<-cor(alpha_meta_num_north, use="complete.obs", method="spearman")#makes correlation matrix
+cor_matrix_north2<-rcorr(as.matrix(alpha_meta_num_north), type = "spearman") #calculate significance
+cor_matrix_north2 # shows matrix, number samples used, and p values
+
+
+#uses flattenCorrmatrix function http://www.sthda.com/english/wiki/correlation-matrix-formatting-and-visualization
+cor_matrix_table_spearman_north<-flattenCorrMatrix(cor_matrix_north2$r, cor_matrix_north2$P) # uses created function
+View(cor_matrix_table_spearman_north)
+spearman_table_north<-as.data.frame(cor_matrix_table_spearman_north)#make data frame
+
+View(spearman_table_north)#view
+
+
+######## South ####### 
+
+#study area 
+alpha_meta1_south$study_area<- as.factor(alpha_meta1_south$study_area)
+kruskal.test(alpha_meta1_south$Shannon, alpha_meta1_south$study_area)
+kruskal.test(alpha_meta1_south$Simpson, alpha_meta1_south$study_area)
+kruskal.test(alpha_meta1_south$Observed, alpha_meta1_south$study_area)
+
+
+# BTV
+alpha_meta1_south$btv<- as.factor(alpha_meta1_south$btv)
+kruskal.test(alpha_meta1_south$Shannon, alpha_meta1_south$btv)
+kruskal.test(alpha_meta1_south$Simpson, alpha_meta1_south$btv)
+kruskal.test(alpha_meta1_south$Observed, alpha_meta1_south$btv)
+
+#EHD
+alpha_meta1_south$ehd<- as.factor(alpha_meta1_south$ehd)
+kruskal.test(alpha_meta1_south$Shannon, alpha_meta1_south$ehd)
+kruskal.test(alpha_meta1_south$Simpson, alpha_meta1_south$ehd)
+kruskal.test(alpha_meta1_south$Observed, alpha_meta1_south$ehd)
+
+#capture periods
+alpha_meta1_south$capture_group<- as.factor(alpha_meta1_south$capture_group)
+kruskal.test(alpha_meta1_south$Shannon, alpha_meta1_south$capture_group)
+kruskal.test(alpha_meta1_south$Simpson, alpha_meta1_south$capture_group)
+kruskal.test(alpha_meta1_south$Observed, alpha_meta1_south$capture_group)
+
+#test what is different 
+pairwise.wilcox.test(alpha_meta1_south$Shannon, alpha_meta1_south$capture_group, p.adjust.method = "bonferroni")
+pairwise.wilcox.test(alpha_meta1_south$Simpson, alpha_meta1_south$capture_group, p.adjust.method = "bonferroni")
+pairwise.wilcox.test(alpha_meta1_south$Observed, alpha_meta1_south$capture_group, p.adjust.method = "bonferroni")
+
+####### Correlations #######
+
+cor_matrix_south<-cor(alpha_meta_num_south, use="complete.obs", method="spearman")#makes correlation matrix
+cor_matrix_south2<-rcorr(as.matrix(alpha_meta_num_south), type = "spearman") #calculate significance
+cor_matrix_south2 # shows matrix, number samples used, and p values
+
+
+#uses flattenCorrmatrix function http://www.sthda.com/english/wiki/correlation-matrix-formatting-and-visualization
+cor_matrix_table_spearman_south<-flattenCorrMatrix(cor_matrix_south2$r, cor_matrix_south2$P) # uses created function
+View(cor_matrix_table_spearman_south)
+spearman_table_south<-as.data.frame(cor_matrix_table_spearman_south)
+
+View(spearman_table_south)
+
+```
+### mean and SD for subsets North and South 
+
+```{r}
+##############  NORTH ######################
+alpha_meta1_north_by_capture<-alpha_meta1_north%>% # find mean and SD for each metric for capture 
+  group_by(capture_group)%>%
+  summarise(mean_Shannon=mean(Shannon), sd_Shannon=sd(Shannon), mean_Simpson=mean(Simpson), sd_Simpson=sd(Simpson), mean_Observed=mean(Observed), sd_Observed=sd(Observed))
+
+View(alpha_meta1_north_by_capture)
+
+#get SE from SD 
+
+#Nov 2013
+(alpha_meta1_north_by_capture[1,3])/sqrt(35) #Shannon SE 0.0337
+(alpha_meta1_north_by_capture[1,5])/sqrt(35) # Simpson SE 0.00124
+(alpha_meta1_north_by_capture[1,7])/sqrt(35) #Observed SE 7.1407
+
+#Feb 2014
+
+(alpha_meta1_north_by_capture[2,3])/sqrt(5) #Shannon SE 0.14600
+(alpha_meta1_north_by_capture[2,5])/sqrt(5) # Simpson SE 0.00595
+(alpha_meta1_north_by_capture[2,7])/sqrt(5) #Observed SE 11.1964
+
+#NOv 2014
+
+(alpha_meta1_north_by_capture[3,3])/sqrt(24) #Shannon SE 0.0648
+(alpha_meta1_north_by_capture[3,5])/sqrt(24) # Simpson SE 0.00355
+(alpha_meta1_north_by_capture[3,7])/sqrt(24) #Observed SE 10.1134
+
+
+alpha_meta1_north_by_btv<-alpha_meta1_north%>% # find mean and SD for each metric for capture 
+  group_by(btv)%>%
+  summarise(mean_Shannon=mean(Shannon), sd_Shannon=sd(Shannon), mean_Simpson=mean(Simpson), sd_Simpson=sd(Simpson), mean_Observed=mean(Observed), sd_Observed=sd(Observed))
+
+View(alpha_meta1_north_by_btv)
+
+
+## Get SE from SD
+
+#Negative
+(alpha_meta1_north_by_btv[1,3])/sqrt(57) #Shannon SE 0.03695
+
+#Positive
+
+(alpha_meta1_north_by_btv[2,3])/sqrt(57) #Shannon SE 0.01589
+
+###### SOUTH #############
+
+alpha_meta1_south_by_capture<-alpha_meta1_south%>% # find mean and SD for each metric for capture 
+  group_by(capture_group)%>%
+  summarise(mean_Shannon=mean(Shannon), sd_Shannon=sd(Shannon), mean_Simpson=mean(Simpson), sd_Simpson=sd(Simpson), mean_Observed=mean(Observed), sd_Observed=sd(Observed))
+
+View(alpha_meta1_south_by_capture)
+
+#get SE from SD 
+
+#Nov 2013
+(alpha_meta1_south_by_capture[1,3])/sqrt(75) #Shannon SE 0.03354
+(alpha_meta1_south_by_capture[1,5])/sqrt(75) # Simpson SE 0.001599
+(alpha_meta1_south_by_capture[1,7])/sqrt(75) #Observed SE 5.61809
+
+#Feb 2014
+
+(alpha_meta1_south_by_capture[2,3])/sqrt(6) #Shannon SE 0.09442
+(alpha_meta1_south_by_capture[2,5])/sqrt(6) # Simpson SE 0.003146
+(alpha_meta1_south_by_capture[2,7])/sqrt(6) #Observed SE 16.83531
+
+#Nov 2014
+
+(alpha_meta1_south_by_capture[3,3])/sqrt(10) #Shannon SE 0.08065
+(alpha_meta1_south_by_capture[3,5])/sqrt(10) # Simpson SE 0.00719
+(alpha_meta1_south_by_capture[3,7])/sqrt(10) #Observed SE 8.36719
+
+```
+
+
+#Transform relative
+```{r}
+#Create transformed phyloseq to run beta diversity on...
+phyloseq_16S_tr_prefilt <- transform_sample_counts(phyloseq_16S_good_pronghorn, function(x) x / sum(x))# transforms to relative abundance, pre-filtering rare taxa
+sort(colSums(otu_table(phyloseq_16S_tr_prefilt))) # checks to see that the sum for each column (each sample) is 1
+phyloseq_16S_tr_prefilt # check and make sure all samples and taxa were retained
+phyloseq_16S_good_pronghorn #compare to the numbers before we did erlative abundance- checks out
+
+#this next line subsets any taxa which have a mean abundance of less than 1E-5.  
+phyloseq_16S_tr_filt <- filter_taxa(phyloseq_16S_tr_prefilt, function(x) mean(x) > 1e-5, TRUE)
+phyloseq_16S_tr_filt# we lost a lot of taxa... filtering loses 1097 taxa
+```
+#Transform log
+```{r}
+## log transforming code here
+ #use this phyloseq_16S_tr_prefilt to keep all taxa in this
+phyloseq_16S_log<-transform_sample_counts(phyloseq_16S_tr_prefilt, function(x) log1p(x))# log1p(x)= log(1 +x) so as to not mess up zero counts
+View(data.frame(otu_table(phyloseq_16S_log)))# view to see, check
+View(otu_table(phyloseq_16S_tr_prefilt)) #compare to before log transform- math looks to check out
+
+```
+
+#ORDINATIONS
+##set up 
+```{r}
+##For each metric run NMDS and PCoA- with Bray-Curtis, unweighted unifrac, weighted unifrac to explore differences
+
+## Note in the manuscript we use prefiltered (rare taxa remain) and Bray curtis and PCoA, but left in other code that we explored in second section in case it is useful
+
+#create diversity matrices- rare taxa remaining
+bray_PCoA_prefilt  <- ordinate(phyloseq_16S_tr_prefilt, "PCoA", "bray")
+
+```
+## publication ordination  figures
+```{r}
+# Bray Curtis and PCoa for study area, prefilter, with i80 shapes added
+study_area_bray_PCoA_plot2 <- plot_ordination(phyloseq_16S_tr_prefilt, 
+                                         bray_PCoA_prefilt,
+                                         type = "samples",
+                                         color = "study_area", shape= "i_80") + theme_bw()
+  
+study_area_bray_PCoA_plot2 +geom_point(size=2)+ stat_ellipse(size=0.65) + 
+  labs(title = "A: PCoA by Study Area") + theme(text = element_text(size = 12, family="Times New Roman")) + theme(plot.title = element_text(hjust = 0.5, size = 12)) + theme(legend.text = element_text(size = 12, color="black")) + theme(axis.text = element_text(size = 12, color= "black")) + theme(axis.title = element_text(size = 12, color= "black")) +scale_color_manual(values=friendly4_colors_green_purp, labels= c("Baggs", "Bitter Creek", "CDC", "Red Desert"), name="Study area") + scale_shape_manual(values=c(16,3),name="I-80")
+
+
+ggsave("PCoA_study_area1.png", width=10, height=7, dpi= 300)
+
+ggsave("PCoA_study_area2.tiff", width=5, height=2.6, dpi= 300)
+
+
+##Capture period/ Group
+
+# Bray-Curtis dissimilariy PCoA, capture group, with phyloseq pre-filtered
+capture_group_bray_PCoA_plot <- plot_ordination(phyloseq_16S_tr_prefilt, 
+                                         bray_PCoA_prefilt,
+                                         type = "samples",
+                                         color = "capture_group") + theme_bw() # add , shape= "study_area"" or whatever else to add groups within ordinations
+  
+
+capture_group_bray_PCoA_plot  + stat_ellipse(size=0.65)+
+  labs(title = "C: PCoA by Capture Period") + theme(text = element_text(size = 12, family="Times New Roman")) + theme(plot.title = element_text(hjust = 0.5, size = 12)) + theme(legend.text = element_text(size = 12, color="black")) + theme(axis.text = element_text(size = 12, color= "black")) + theme(axis.title = element_text(size = 12, color= "black")) +scale_color_manual(values=friendly4_colors, labels=c("November 2013", "February 2014", "November 2014"), name="Capture period") +geom_point(size=0.5)
+
+ggsave("PCoA_capture_period.png", width=10, height=7, dpi=300)  
+  
+ggsave("PCoA_capture_period.tiff", width=5, height=2.6, dpi=300)
+
+```
+
+##exploring other ordinations code
+```{r}
+# note: the following sets of ordination figures were done as part of our early data analysis to get an idea of how our data was looking. These do not appear in the manuscript: 
+
+#create diversity matrices- rare taxa remaining
+bray_PCoA_prefilt  <- ordinate(phyloseq_16S_tr_prefilt, "PCoA", "bray")
+bray_nmds_prefilt  <- ordinate(phyloseq_16S_tr_prefilt, "NMDS", "bray") #note no convergence, another reason for PCoA
+uni_PCoA_prefilt <- ordinate(phyloseq_16S_tr_prefilt, "PCoA", "unifrac")
+uni_nmds_prefilt <- ordinate(phyloseq_16S_tr_prefilt, "NMDS", "unifrac")
+wuni_PCoA_prefilt <- ordinate(phyloseq_16S_tr_prefilt, "PCoA", "wunifrac")
+wuni_nmds_prefilt <- ordinate(phyloseq_16S_tr_prefilt, "NMDS", "wunifrac") # note no convergence 
+
+#create diversity matrices- rare taxa filtered out #note did not run these, but here in case we switch tracks
+bray_PCoA_filt  <- ordinate(phyloseq_16S_tr_filt, "PCoA", "bray")
+bray_nmds_filt  <- ordinate(phyloseq_16S_tr_filt, "NMDS", "bray")
+uni_PCoA_filt <- ordinate(phyloseq_16S_tr_filt, "PCoA", "unifrac")
+uni_nmds_filt <- ordinate(phyloseq_16S_tr_filt, "NMDS", "unifrac")
+wuni_PCoA_filt <- ordinate(phyloseq_16S_tr_filt, "PCoA", "wunifrac")
+wuni_nmds_filt <- ordinate(phyloseq_16S_tr_filt, "NMDS", "wunifrac")
+
+#note: code below for data exploration is only for the bray-curtis, PCoA and before filtering rare taxa (bray_PCoA_prefilt), but we also explored running the exploratory code below with the different distances and pre/post filtering to explore different options. The code above was to set each of these options up.  Code could be run with these other distance matrices or after filtering rare taxa by changing the argument to one of the objects above rather than "bray_PCoA_prefilt"
+```
+
+### Study area
+```{r}
+
+# Bray Curtis and PCoa, prefilter, with i80 added
+study_area_bray_PCoA_plot <- plot_ordination(phyloseq_16S_tr_prefilt, 
+                                         bray_PCoA_prefilt,
+                                         type = "samples",
+                                         color = "study_area") + theme_bw()
+  
+study_area_bray_PCoA_plot + stat_ellipse() + 
+  labs(title = "PCoA by I-80") + theme(text = element_text(size = 12, family="Times New Roman"))+ theme(plot.title = element_text(hjust = 0.5))
+
+## I-80
+ 
+# Bray-Curtis dissimilariy PCoA, noi80 shapes
+
+I80_bray_PCoA_plot <- plot_ordination(phyloseq_16S_tr_prefilt, 
+                                         bray_PCoA_prefilt,
+                                         type = "samples",
+                                         color = "i_80") + theme_bw()
+  
+I80_bray_PCoA_plot + stat_ellipse() + 
+  labs(title = "PCoA by I-80") + theme(text = element_text(size = 12, family="Times New Roman"))+ theme(plot.title = element_text(hjust = 0.5))
+```
+
+###Weight
+```{r}
+###weight by 1 KG #####
+
+# Bray Curtis and PCoa
+weight_1kg_bray_PCoA_plot <- plot_ordination(phyloseq_16S_tr_prefilt, 
+                                         bray_PCoA_prefilt,
+                                         type = "samples",
+                                         color = "weight_1kg") + theme_bw()
+  
+weight_1kg_bray_PCoA_plot + stat_ellipse() + 
+  labs(title = "Bray-Curtis Dissimilarity PCoA 1 kg weights") + theme(text = element_text(size = 10))
+###weight by 5 KG #####
+
+# Bray Curtis and PCoa
+weight_5kg_bray_PCoA_plot <- plot_ordination(phyloseq_16S_tr_prefilt, 
+                                         bray_PCoA_prefilt,
+                                         type = "samples",
+                                         color = "weight_5kg") + theme_bw()
+  
+weight_5kg_bray_PCoA_plot + stat_ellipse() + 
+  labs(title = "Bray-Curtis Dissimilarity PCoA 5 kg weights") + theme(text = element_text(size = 10))
+
+## Weight percentiles (meaning quartiles)
+# Bray Curtis and PCoa
+weight_percentiles_bray_PCoA_plot <- plot_ordination(phyloseq_16S_tr_prefilt, 
+                                         bray_PCoA_prefilt,
+                                         type = "samples",
+                                         color = "weight_percentiles") + theme_bw()
+  
+weight_percentiles_bray_PCoA_plot + stat_ellipse() + 
+  labs(title = "Bray-Curtis Dissimilarity PCoA weight percentiles") + theme(text = element_text(size = 10))
+
+
+
+```
+###Age
+
+```{r}
+##AGE young, mid, old##
+
+# Bray Curtis and PCoa
+age_y_m_o_bray_PCoA_plot <- plot_ordination(phyloseq_16S_tr_prefilt, 
+                                         bray_PCoA_prefilt,
+                                         type = "samples",
+                                         color = "age_y_m_o") + theme_bw()
+  
+age_y_m_o_bray_PCoA_plot + stat_ellipse() + 
+  labs(title = "Bray-Curtis Dissimilarity PCoA age_y_m_o") + theme(text = element_text(size = 10))
+##AGE CORERCTED young, mid, old##
+
+# Bray Curtis and PCoa
+cor_age_y_m_o_bray_PCoA_plot <- plot_ordination(phyloseq_16S_tr_prefilt, 
+                                         bray_PCoA_prefilt,
+                                         type = "samples",
+                                         color = "cor_age_y_m_o") + theme_bw()
+  
+cor_age_y_m_o_bray_PCoA_plot + stat_ellipse() + 
+  labs(title = "Bray-Curtis Dissimilarity PCoA cor_age_y_m_o") + theme(text = element_text(size = 10))
+
+## Age percentiles (meaning quartiles)##
+
+# Bray Curtis and PCoa
+age_percentiles_bray_PCoA_plot <- plot_ordination(phyloseq_16S_tr_prefilt, 
+                                         bray_PCoA_prefilt,
+                                         type = "samples",
+                                         color = "age_percentiles") + theme_bw()
+  
+age_percentiles_bray_PCoA_plot + stat_ellipse() + 
+  labs(title = "Bray-Curtis Dissimilarity PCoA age percentiles") + theme(text = element_text(size = 10))
+
+#practice to make it fancier
+age_percentiles_bray_PCoA_plot + stat_ellipse(size=1.25) + 
+  labs(title = "PCoA by Age Quartile") + theme(text = element_text(size = 14, family="Times New Roman")) + theme(plot.title = element_text(hjust = 0.5, size = 14)) + theme(legend.text = element_text(size = 14, color="black")) + theme(axis.text = element_text(size = 14, color= "black")) + theme(axis.title = element_text(size = 14, color= "black"))+ scale_color_manual(values=friendly5_colors_)+geom_point(size=3)
+
+## Age BY 1##
+
+# Bray Curtis and PCoa
+age_by1_bray_PCoA_plot <- plot_ordination(phyloseq_16S_tr_prefilt, 
+                                         bray_PCoA_prefilt,
+                                         type = "samples",
+                                         color = "age_by1") + theme_bw()
+  
+age_by1_bray_PCoA_plot + stat_ellipse() + 
+  labs(title = "Bray-Curtis Dissimilarity PCoA age by 1") + theme(text = element_text(size = 10))
+
+## Age BY 2##
+
+# Bray Curtis and PCoa
+age_by2_bray_PCoA_plot <- plot_ordination(phyloseq_16S_tr_prefilt, 
+                                         bray_PCoA_prefilt,
+                                         type = "samples",
+                                         color = "age_by2") + theme_bw()
+  
+age_by2_bray_PCoA_plot + stat_ellipse() + 
+  labs(title = "Bray-Curtis Dissimilarity PCoA age by 2") + theme(text = element_text(size = 10))
+```
+###Fat Metrics
+```{r}
+## SS ligament
+# Bray Curtis and PCoa
+ss_ligament_bray_PCoA_plot <- plot_ordination(phyloseq_16S_tr_prefilt, 
+                                         bray_PCoA_prefilt,
+                                         type = "samples",
+                                          color = "ss_ligament") + theme_bw()
+
+
+ss_ligament_bray_PCoA_plot + stat_ellipse(size=1.25) + 
+  labs(title = "PCoA of Sacrosciatic Ligament Indentation") + theme(text = element_text(size = 14, family="Times New Roman"))  + theme(plot.title = element_text(hjust = 0.5, size=14))  + theme(legend.text = element_text(size = 14, color="black")) + theme(axis.text = element_text(size = 14, color= "black")) + theme(axis.title = element_text(size = 14, color= "black")) + scale_color_manual(values=friendly15_colors)+geom_point(size=3)
+  
+
+#no circles
+ss_ligament_bray_PCoA_plot + 
+  labs(title = "PCoA of Sacrosciatic Ligament Indentation") + theme(text = element_text(size = 14, family="Times New Roman"))  + theme(plot.title = element_text(hjust = 0.5, size=14))  + theme(legend.text = element_text(size = 14, color="black")) + theme(axis.text = element_text(size = 14, color= "black")) + theme(axis.title = element_text(size = 14, color= "black")) + scale_color_manual(values=friendly15_colors)+geom_point(size=3)
+
+## Max fat ##
+# Bray Curtis and PCoa
+max._bray_PCoA_plot <- plot_ordination(phyloseq_16S_tr_prefilt, 
+                                         bray_PCoA_prefilt,
+                                         type = "samples",
+                                         color = "max.") + theme_bw()
+  
+max._bray_PCoA_plot + stat_ellipse() + 
+  labs(title = "Bray-Curtis Dissimilarity PCoA Max Fat") + theme(text = element_text(size = 10))
+```
+### Diseases and Mortality
+
+```{r}
+## EHD##
+# Bray Curtis and PCoa
+ehd_bray_PCoA_plot <- plot_ordination(phyloseq_16S_tr_prefilt, 
+                                         bray_PCoA_prefilt,
+                                         type = "samples",
+                                         color = "ehd") + theme_bw()
+  
+ehd_bray_PCoA_plot + stat_ellipse() + 
+  labs(title = "Bray-Curtis Dissimilarity PCoA EHD") + theme(text = element_text(size = 10))
+##BTV##
+# Bray Curtis and PCoa
+btv_bray_PCoA_plot <- plot_ordination(phyloseq_16S_tr_prefilt, 
+                                         bray_PCoA_prefilt,
+                                         type = "samples",
+                                         color = "btv") + theme_bw()
+  
+btv_bray_PCoA_plot + stat_ellipse() + 
+  labs(title = "Bray-Curtis Dissimilarity PCoA BTV") + theme(text = element_text(size = 10))
+
+## Mortality## 
+
+# Bray Curtis and PCoa
+mortality_bray_PCoA_plot <- plot_ordination(phyloseq_16S_tr_prefilt, 
+                                         bray_PCoA_prefilt,
+                                         type = "samples",
+                                         color = "mortality_code") + theme_bw()
+  
+mortality_bray_PCoA_plot + stat_ellipse() + 
+  labs(title = "Bray-Curtis Dissimilarity PCoA Mortality") + theme(text = element_text(size = 10))
+```
+### Capture groups
+```{r}
+##Group
+# Bray-Curtis dissimilariy PCoA, capture group
+capture_group_bray_PCoA_plot <- plot_ordination(phyloseq_16S_tr_prefilt, 
+                                         bray_PCoA_prefilt,
+                                         type = "samples",
+                                         color = "capture_group") + theme_bw() 
+
+ capture_group_bray_PCoA_plot + stat_ellipse() + 
+  labs(title = "PCoA by Capture Group") + theme(text = element_text(size = 10))+ theme(plot.title = element_text(hjust = 0.5)) 
+
+## Season
+#Bray-Curtis dissimilariy PCoA, capture season
+capture_season_bray_PCoA_plot <- plot_ordination(phyloseq_16S_tr_prefilt, 
+                                         bray_PCoA_prefilt,
+                                         type = "samples",
+                                         color = "capture_season") + theme_bw()
+  
+capture_season_bray_PCoA_plot + stat_ellipse() + 
+  labs(title = "PCoA by Capture Season") + theme(text = element_text(size = 10))+ theme(plot.title = element_text(hjust = 0.5))
+```
+
+# Permanova tests
+## Set up 
+```{r}
+#Prep/setup
+#Here is with transformed pre-filtering of rare taxa...
+
+# pull the phyloseq otu table out of the phyloseq object 
+ps_table_gp <- data.frame(otu_table(phyloseq_16S_tr_prefilt))
+flip_ps_table_gp<-t(ps_table_gp)# flip it so that it matches metadata format
+flip_ps_table_gp [1:20, 1:10]#look at my data... did it work? 
+#pull the sample data metadata out of phyloseq object
+meta_gp <- data.frame(sample_data(phyloseq_16S_tr_prefilt))
+
+View(meta_gp) #look at my data... did it work?, same orientation? 
+
+#re-code the NAs in metadata to all be "NA"
+meta_gp_NA<-meta_gp#copy meta_gp so i dont mess it up, replace NR value with NA
+meta_gp_NA[meta_gp_NA == "NR"] <- "NA"
+meta_gp_NA[meta_gp_NA == ""] <- "NA" 
+View(meta_gp) #view original
+View(meta_gp_NA) #view the one with re-coded NA
+
+#Remove sample data with NA
+library(mde)
+meta_gp_NA1<-recode_as_na(meta_gp_NA, value= c("NA", "")) #renames it so that "NA"" is actually recognized as NA
+View(meta_gp_NA1) #check 
+meta_gp_NA2<- tibble::column_to_rownames((as.data.frame(meta_gp_NA1)), "sample_name") #makes full set for re-coded NAs but with sample names as rows
+View(meta_gp_NA2) #check
+meta_gp_no_na<-na.omit(meta_gp_NA2)###this code works when they are actually R recognized NAs and not "NA", gets us to 134 samples that have no nas at all 
+View(meta_gp_no_na) #View to check 
+
+
+# make phyloseq reads table a data matrix to match names to metadata 
+adonis_table<-data.matrix(flip_ps_table_gp)
+
+adonis_table_no_x_row<- tibble::rownames_to_column((as.data.frame(adonis_table)), "sample_name") #add sample name as column
+adonis_table_no_x_row$sample_name<-gsub("X","", as.character(adonis_table_no_x_row$sample_name))#remove x in sample name-that came from matrix transformation?
+View(adonis_table_no_x_row) #check it 
+adonis_table_no_x_row<- tibble::column_to_rownames((as.data.frame(adonis_table_no_x_row)), "sample_name")#rename rows without the x
+
+#make the rows in adonis table and meta_gp_no_na match observations
+adonis_table_no_na<-adonis_table_no_x_row[(rownames(meta_gp_no_na)),]#subset adonis table to match metadata 
+View(adonis_table_no_na) #should have 134 observations
+
+```
+
+##single PERMANOVAs
+```{r}
+#for capture and study area metrics (with all animals included (no NA))
+View(adonis_table_no_x_row) #check this is what I want (159 samples)
+View(meta_gp_NA)#check this is what I want (159 samples)
+
+#added to code , method="bray" to compare.....just checking and yes it has been using bray as the default
+
+# make groups factors for analysis
+meta_gp_NA$study_area<-as.factor(meta_gp_NA$study_area)
+meta_gp_NA$i_80<-as.factor(meta_gp_NA$i_80)
+meta_gp_NA$capture_group<-as.factor(meta_gp_NA$capture_group)
+meta_gp_NA$capture_season<-as.factor(meta_gp_NA$capture_season)
+
+
+# Study areas
+set.seed(223)
+adonis2((adonis_table_no_x_row)~meta_gp_NA$study_area, na.action=na.omit)
+
+# I80
+set.seed(223)
+adonis2((adonis_table_no_x_row)~meta_gp_NA$i_80, na.action=na.omit)
+
+# capture period
+set.seed(223)
+adonis2((adonis_table_no_x_row)~meta_gp_NA$capture_group, na.action=na.omit) 
+#capture season
+set.seed(223)
+adonis2((adonis_table)~meta_gp_NA$capture_season, na.action=na.omit)
+
+#for other pronghorn metrics (use file without NAs so we do not have errors)
+
+View(adonis_table_no_na) #check we have the set of 134 pronghorn
+View(meta_gp_no_na) #check we have the matching 134
+
+# make groups factors for analysis
+meta_gp_no_na$btv<-as.factor(meta_gp_no_na$btv)
+meta_gp_no_na$ehd<-as.factor(meta_gp_no_na$ehd)
+meta_gp_no_na$age_y_m_o<-as.factor(meta_gp_no_na$age_y_m_o)
+meta_gp_no_na$age_by1<-as.factor(meta_gp_no_na$age_by1)
+meta_gp_no_na$age_by2<-as.factor(meta_gp_no_na$age_by2)
+meta_gp_no_na$age_percentiles<-as.factor(meta_gp_no_na$age_percentiles)
+meta_gp_no_na$cor_age_y_m_o<-as.factor(meta_gp_no_na$cor_age_y_m_o)
+meta_gp_no_na$weight_percentiles<-as.factor(meta_gp_no_na$weight_percentiles)
+meta_gp_no_na$weight_5kg<-as.factor(meta_gp_no_na$weight_5kg)
+meta_gp_no_na$weight_1kg<-as.factor(meta_gp_no_na$weight_1kg)
+meta_gp_no_na$max.<-as.factor(meta_gp_no_na$max.)
+meta_gp_no_na$ss_ligament<-as.factor(meta_gp_no_na$ss_ligament)
+
+#BTV
+set.seed(223)
+adonis2((adonis_table_no_na)~meta_gp_no_na$btv, na.action=na.omit)
+#EHD
+set.seed(223)
+adonis2((adonis_table_no_na)~meta_gp_no_na$ehd)
+
+# Age
+
+set.seed(223)
+adonis2((adonis_table_no_na)~meta_gp_no_na$age_y_m_o, na.action=na.omit)
+
+set.seed(223)
+adonis2((adonis_table_no_na)~meta_gp_no_na$adj_age, na.action=na.omit)# apparently adonis works with continuous data too....
+
+set.seed(223)
+adonis2((adonis_table_no_na)~meta_gp_no_na$age_by1, na.action=na.omit)
+
+set.seed(223)
+adonis2((adonis_table_no_na)~meta_gp_no_na$age_by2, na.action=na.omit)
+
+set.seed(223)
+adonis2((adonis_table_no_na)~meta_gp_no_na$age_percentiles, na.action=na.omit)#ctually means quartiles 
+
+set.seed(223)
+adonis2((adonis_table_no_na)~meta_gp_no_na$cor_age, na.action=na.omit)
+
+set.seed(223)
+adonis2((adonis_table_no_na)~meta_gp_no_na$cor_age_y_m_o, na.action=na.omit)
+
+#Weight
+set.seed(223)
+adonis2((adonis_table_no_na)~meta_gp_no_na$body_weight, na.action=na.omit)# apparently adonis works with continuous data too....
+
+set.seed(223)
+adonis2((adonis_table_no_na)~meta_gp_no_na$weight_percentiles, na.action=na.omit) #actually means quartiles
+
+set.seed(223)
+adonis2((adonis_table_no_na)~meta_gp_no_na$weight_5kg, na.action=na.omit)
+
+set.seed(223)
+adonis2((adonis_table_no_na)~meta_gp_no_na$weight_1kg, na.action=na.omit)
+
+#ss ligaminet
+set.seed(223)
+adonis2((adonis_table_no_na)~meta_gp_no_na$ss_ligament, na.action=na.omit)
+
+#max fat
+set.seed(223)
+adonis2((adonis_table_no_na)~meta_gp_no_na$max., na.action=na.omit)
+
+```
+###Log transformed single permanovas
+```{r}
+#Prep/setup 
+# Here is with transformed pre-filtering of rare taxa, then log transformed ...
+
+ 
+ps_table_log <- data.frame(otu_table(phyloseq_16S_log))# pull the phyloseq table out of the phyloseq object,
+flip_ps_table_log<-t(ps_table_log) #flip to to match metadata format
+meta_log <- data.frame(sample_data(phyloseq_16S_log))#  pull the sample data metadata out of phyloseq object
+flip_ps_table_log [1:20, 1:10]#look at my data... did it work? 
+View(meta_log) #look at my data... did it work?, same orientation? 
+
+#copy meta_gp so i dont mess it up, replace NR value with NA
+meta_log_NA<-meta_log
+meta_log_NA[meta_log_NA == "NR"] <- "NA" #instead of making it "NR" make it "NA"
+View(meta_log_NA)  #check did it work... 
+meta_log_NA[meta_log_NA == ""] <- "NA" ##added this for other missing ones
+View(meta_log_NA) #check again 
+ 
+#Remove data with NA- should specify only columns of interest??? NOTE IF ADONIS DOESNT WORK REDO IT FROM ABOVE HERE
+library(mde)
+meta_log_NA1<-recode_as_na(meta_log_NA, value= c("NA", "")) #renames it so that "NA"" is actually recognized as NA
+meta_log_no_na<-na.omit(meta_log_NA1)###this code works when they are actually R recognized NAs and not "NA", gets us to 134 samples that have no nas at all 
+View(meta_log_no_na) #View to check 
+meta_log_no_na<-tibble::rownames_to_column((as.data.frame(meta_log_no_na)), "row") #makes "rownames" a column
+meta_log_no_na<-tibble::column_to_rownames((as.data.frame(meta_log_no_na)), "sample_name") #puts sample name as the row name
+View(meta_log_no_na) #View to check 
+
+# make phyloseq reads table a data matrix to match names to metadata 
+adonis_table_log<-data.matrix(flip_ps_table_log)
+View(adonis_table_log) #check
+
+adonis_table_log_no_x_row<- tibble::rownames_to_column((as.data.frame(adonis_table_log)), "sample_name") #add sample name as column
+
+adonis_table_log_no_x_row$sample_name<-gsub("X","", as.character(adonis_table_log_no_x_row$sample_name))#remove x in sample name-where did that even come from??
+adonis_table_log_no_x_row<- tibble::column_to_rownames((as.data.frame(adonis_table_log_no_x_row)), "sample_name")#rename rows without the x
+View(adonis_table_no_x_row) #check
+
+#make the rows in adonis table and meta_gp_no_na match 
+adonis_table_log_no_na<-adonis_table_log_no_x_row[(rownames(meta_log_no_na)),]#subset adonis table to match metadata 
+View(adonis_table_log_no_na) #should have 134 observations
+
+# Run on full 159 for study area and capture with no NAs
+
+# make groups factors for analysis
+meta_log_NA$study_area<-as.factor(meta_log_NA$study_area)
+meta_log_NA$i_80<-as.factor(meta_log_NA$i_80)
+meta_log_NA$capture_group<-as.factor(meta_log_NA$capture_group)
+meta_log_NA$capture_season<-as.factor(meta_log_NA$capture_season)
+
+# Study areas
+set.seed(223)
+adonis2((adonis_table_log)~meta_log_NA$study_area, na.action=na.omit)
+
+#I80
+set.seed(223)
+adonis2((adonis_table_log)~meta_log_NA$i_80, na.action=na.omit)
+
+# capture time
+set.seed(223)
+adonis2((adonis_table_log)~meta_log_NA$capture_group, na.action=na.omit) 
+set.seed(223)
+adonis2((adonis_table_log)~meta_log_NA$capture_season, na.action=na.omit)
+
+
+## Log transformed with all the NAs removed out for 134 pronghorn metrics 
+# make groups factors for analysis
+meta_log_no_na$btv<-as.factor(meta_log_no_na$btv)
+meta_log_no_na$ehd<-as.factor(meta_log_no_na$ehd)
+meta_log_no_na$age_y_m_o<-as.factor(meta_log_no_na$age_y_m_o)
+meta_log_no_na$age_by1<-as.factor(meta_log_no_na$age_by1)
+meta_log_no_na$age_by2<-as.factor(meta_log_no_na$age_by2)
+meta_log_no_na$age_percentiles<-as.factor(meta_log_no_na$age_percentiles)
+meta_log_no_na$cor_age_y_m_o<-as.factor(meta_log_no_na$cor_age_y_m_o)
+meta_log_no_na$weight_percentiles<-as.factor(meta_log_no_na$weight_percentiles)
+meta_log_no_na$weight_5kg<-as.factor(meta_log_no_na$weight_5kg)
+meta_log_no_na$weight_1kg<-as.factor(meta_log_no_na$weight_1kg)
+meta_log_no_na$max.<-as.factor(meta_log_no_na$max.)
+meta_log_no_na$ss_ligament<-as.factor(meta_log_no_na$ss_ligament)
+
+#BTV
+set.seed(223)
+adonis2((adonis_table_log_no_na)~meta_log_no_na$btv, na.action=na.omit)
+#EHD
+set.seed(223)
+adonis2((adonis_table_log_no_na)~meta_log_no_na$ehd, na.action=na.omit)
+# Age
+set.seed(223)
+adonis2((adonis_table_log_no_na)~meta_log_no_na$adj_age, na.action=na.omit)# apparently adonis works with continuous data too....
+
+set.seed(223)
+adonis2((adonis_table_log_no_na)~meta_log_no_na$age_by1, na.action=na.omit)
+
+set.seed(223)
+adonis2((adonis_table_log_no_na)~meta_log_no_na$age_by2, na.action=na.omit)
+
+set.seed(223)
+adonis2((adonis_table_log_no_na)~meta_log_no_na$age_percentiles, na.action=na.omit) #actually means quartiles
+
+set.seed(223)
+adonis2((adonis_table_log_no_na)~meta_log_no_na$age_y_m_o, na.action=na.omit)
+
+set.seed(223)
+adonis2((adonis_table_log_no_na)~meta_log_no_na$cor_age, na.action=na.omit)
+
+set.seed(223)
+adonis2((adonis_table_log_no_na)~meta_log_no_na$cor_age_y_m_o, na.action=na.omit)
+
+#Weight
+set.seed(223)
+adonis2((adonis_table_log_no_na)~meta_log_no_na$body_weight, na.action=na.omit)# apparently adonis works with continuous data too....
+
+set.seed(223)
+adonis2((adonis_table_log_no_na)~meta_log_no_na$weight_percentiles, na.action=na.omit)#actually means quartiles
+
+set.seed(223)
+adonis2((adonis_table_log_no_na)~meta_log_no_na$weight_5kg, na.action=na.omit)
+
+set.seed(223)
+adonis2((adonis_table_log_no_na)~meta_log_no_na$weight_1kg, na.action=na.omit)
+#ss ligaminet
+set.seed(223)
+adonis2((adonis_table_log_no_na)~meta_log_no_na$ss_ligament, na.action=na.omit)
+#max fat
+set.seed(223)
+adonis2((adonis_table_log_no_na)~meta_log_no_na$max., na.action=na.omit)
+
+
+
+```
+
+
+
+
+##multivariate permanova
+```{r}
+# FULL MODEL!!!! - one of each metric even non-significant ones 
+meta_gp_no_na$study_area<-as.factor(meta_gp_no_na$study_area)
+
+set.seed(223) # all 6 
+adonis2((adonis_table_no_na)~meta_gp_no_na$study_area + meta_gp_no_na$ss_ligament + meta_gp_no_na$age_y_m_o + meta_gp_no_na$weight_5kg + meta_gp_no_na$btv + meta_gp_no_na$ehd, by="margin", permutations=999)
+
+set.seed(223) #testing all 6 again- order shouldn't matter with our argument by= "margin"- order did not change results- awesome!  
+adonis2((adonis_table_no_na)~meta_gp_no_na$study_area  + meta_gp_no_na$ehd + meta_gp_no_na$age_y_m_o + meta_gp_no_na$weight_5kg + meta_gp_no_na$ss_ligament + meta_gp_no_na$btv, by="margin", permutations=999)
+
+#all interactions
+set.seed(223) #this is the order it is in in the manuscript table
+adonis2((adonis_table_no_na)~meta_gp_no_na$study_area  + meta_gp_no_na$ehd + meta_gp_no_na$ss_ligament + meta_gp_no_na$btv + meta_gp_no_na$age_y_m_o + meta_gp_no_na$weight_5kg +  meta_gp_no_na$ehd:meta_gp_no_na$study_area + meta_gp_no_na$ss_ligament:meta_gp_no_na$study_area + meta_gp_no_na$btv:meta_gp_no_na$study_area + meta_gp_no_na$age_y_m_o:meta_gp_no_na$study_area + meta_gp_no_na$weight_5kg:meta_gp_no_na$study_area, permutations=999)
+
+set.seed(223) #ran with age before ss ligament to see if it changes it drastically with order
+adonis2((adonis_table_no_na)~meta_gp_no_na$study_area  + meta_gp_no_na$ehd + meta_gp_no_na$age_y_m_o + meta_gp_no_na$weight_5kg + meta_gp_no_na$ss_ligament + meta_gp_no_na$btv + meta_gp_no_na$weight_5kg:meta_gp_no_na$study_area + meta_gp_no_na$ehd:meta_gp_no_na$study_area + meta_gp_no_na$btv:meta_gp_no_na$study_area + meta_gp_no_na$ss_ligament:meta_gp_no_na$study_area  + meta_gp_no_na$age_y_m_o:meta_gp_no_na$study_area , permutations=999) #find interaction with age and ss ligament are still both significant at 0.10 threshold, so does not change story if we change order- went with original order
+
+```
+
+## subset study areas permanovas 
+
+```{r}
+##BAGGS
+meta_gp_no_na_Baggs<- subset(meta_gp_no_na, study_area=="Baggs")
+view(meta_gp_no_na_Baggs)#36 observations
+
+#make the rows in adonis table and metadata match for each study area- Baggs
+adonis_table_no_na_Baggs<-adonis_table_no_na[(rownames(meta_gp_no_na_Baggs)),]#subset adonis table to match metadata with Baggs only  
+View(adonis_table_no_na_Baggs) #should have 36 observations
+
+#make groups factors for analysis
+meta_gp_no_na_Baggs$btv<-as.factor(meta_gp_no_na_Baggs$btv)
+meta_gp_no_na_Baggs$ehd<-as.factor(meta_gp_no_na_Baggs$ehd)
+meta_gp_no_na_Baggs$age_y_m_o<-as.factor(meta_gp_no_na_Baggs$age_y_m_o)
+meta_gp_no_na_Baggs$weight_5kg<-as.factor(meta_gp_no_na_Baggs$weight_5kg)
+meta_gp_no_na_Baggs$ss_ligament<-as.factor(meta_gp_no_na_Baggs$ss_ligament)
+
+#ss ligament permanova
+set.seed(223)
+adonis2((adonis_table_no_na_Baggs)~meta_gp_no_na_Baggs$ss_ligament, na.action=na.omit)
+#not significant
+
+#age permanova
+set.seed(223)
+adonis2((adonis_table_no_na_Baggs)~meta_gp_no_na_Baggs$age_y_m_o, na.action=na.omit)
+#not significant
+
+#all metrics within Baggs study area
+set.seed(223)
+adonis2((adonis_table_no_na_Baggs)~meta_gp_no_na_Baggs$age_y_m_o + meta_gp_no_na_Baggs$ss_ligament + meta_gp_no_na_Baggs$btv + meta_gp_no_na_Baggs$ehd + meta_gp_no_na_Baggs$weight_5kg, by="margin", permutations=999)
+
+
+##BITTER CREEK
+meta_gp_no_na_Bitter<- subset(meta_gp_no_na, i_80=="South" & study_area!="Baggs")
+view(meta_gp_no_na_Bitter) #41 observations
+
+#make the rows in adonis table and metadata match for each study area- Bitter Creek
+adonis_table_no_na_Bitter<-adonis_table_no_na[(rownames(meta_gp_no_na_Bitter)),]#subset adonis table to match metadata with Bitter creek only  
+View(adonis_table_no_na_Bitter) #should have 41 observations
+
+#make groups factors for analysis
+meta_gp_no_na_Bitter$btv<-as.factor(meta_gp_no_na_Bitter$btv)
+meta_gp_no_na_Bitter$ehd<-as.factor(meta_gp_no_na_Bitter$ehd)
+meta_gp_no_na_Bitter$age_y_m_o<-as.factor(meta_gp_no_na_Bitter$age_y_m_o)
+meta_gp_no_na_Bitter$weight_5kg<-as.factor(meta_gp_no_na_Bitter$weight_5kg)
+meta_gp_no_na_Bitter$ss_ligament<-as.factor(meta_gp_no_na_Bitter$ss_ligament)
+
+#ss ligaminet permanova
+set.seed(223)
+adonis2((adonis_table_no_na_Bitter)~meta_gp_no_na_Bitter$ss_ligament, na.action=na.omit)
+#not significant
+
+#age permanova
+set.seed(223)
+adonis2((adonis_table_no_na_Bitter)~meta_gp_no_na_Bitter$age_y_m_o, na.action=na.omit)
+#not significant
+
+#all metrics within Bitter Creek study area
+set.seed(223)
+adonis2((adonis_table_no_na_Bitter)~meta_gp_no_na_Bitter$age_y_m_o + meta_gp_no_na_Bitter$ss_ligament + meta_gp_no_na_Bitter$btv + meta_gp_no_na_Bitter$ehd + meta_gp_no_na_Bitter$weight_5kg, by="margin", permutations=999)
+
+
+##CDC
+meta_gp_no_na_CDC<- subset(meta_gp_no_na, study_area=="CDC")
+view(meta_gp_no_na_CDC)# 22 observations
+
+#make the rows in adonis table and metadata match for each study area- CDC
+adonis_table_no_na_CDC<-adonis_table_no_na[(rownames(meta_gp_no_na_CDC)),]#subset adonis table to match metadata with CDC only  
+View(adonis_table_no_na_CDC) #should have 22 observations
+
+#make groups factors for analysis
+meta_gp_no_na_CDC$btv<-as.factor(meta_gp_no_na_CDC$btv)
+meta_gp_no_na_CDC$ehd<-as.factor(meta_gp_no_na_CDC$ehd)
+meta_gp_no_na_CDC$age_y_m_o<-as.factor(meta_gp_no_na_CDC$age_y_m_o)
+meta_gp_no_na_CDC$weight_5kg<-as.factor(meta_gp_no_na_CDC$weight_5kg)
+meta_gp_no_na_CDC$ss_ligament<-as.factor(meta_gp_no_na_CDC$ss_ligament)
+
+#ss ligament permanova
+set.seed(223)
+adonis2((adonis_table_no_na_CDC)~meta_gp_no_na_CDC$ss_ligament, na.action=na.omit)
+#not significant
+
+#age permanova
+set.seed(223)
+adonis2((adonis_table_no_na_CDC)~meta_gp_no_na_CDC$age_y_m_o, na.action=na.omit)
+#not significant
+
+#all metrics within CDC study area
+set.seed(223)
+adonis2((adonis_table_no_na_CDC)~meta_gp_no_na_CDC$age_y_m_o + meta_gp_no_na_CDC$ss_ligament + meta_gp_no_na_CDC$btv + meta_gp_no_na_CDC$ehd + meta_gp_no_na_CDC$weight_5kg, by="margin", permutations=999)
+
+
+##Red Desert
+meta_gp_no_na_Red<- subset(meta_gp_no_na, i_80=="North" & study_area!="CDC")
+view(meta_gp_no_na_Red) #35 observations
+
+#make the rows in adonis table and metadata match for each study area- Bitter Creek
+adonis_table_no_na_Red<-adonis_table_no_na[(rownames(meta_gp_no_na_Red)),]#subset adonis table to match metadata with Red desertonly  
+View(adonis_table_no_na_Red) #should have 35 observations
+
+#make groups factors for analysis
+meta_gp_no_na_Red$btv<-as.factor(meta_gp_no_na_Red$btv)
+meta_gp_no_na_Red$ehd<-as.factor(meta_gp_no_na_Red$ehd)
+meta_gp_no_na_Red$age_y_m_o<-as.factor(meta_gp_no_na_Red$age_y_m_o)
+meta_gp_no_na_Red$weight_5kg<-as.factor(meta_gp_no_na_Red$weight_5kg)
+meta_gp_no_na_Red$ss_ligament<-as.factor(meta_gp_no_na_Red$ss_ligament)
+
+#ss ligaminet permanova
+set.seed(223)
+adonis2((adonis_table_no_na_Red)~meta_gp_no_na_Red$ss_ligament, na.action=na.omit)
+#not significant
+
+#age permanova
+set.seed(223)
+adonis2((adonis_table_no_na_Red)~meta_gp_no_na_Red$age_y_m_o, na.action=na.omit)
+#significant! 
+
+#all metrics within Red Desert study area
+
+set.seed(223)
+adonis2((adonis_table_no_na_Red)~meta_gp_no_na_Red$age_y_m_o + meta_gp_no_na_Red$ss_ligament + meta_gp_no_na_Red$btv + meta_gp_no_na_Red$ehd + meta_gp_no_na_Red$weight_5kg, by="margin", permutations=999) #nothing is significant
+```
+
+## exploring PERMANOVA code
+```{r}
+##This code chunk was done as we were trying to understand the data better, this chunk of code was exploratory and is not models that are in the publication
+
+#### COMBINE THEM!
+#no capture period
+set.seed(223)
+adonis2((adonis_table)~ meta_gp_NA$study_area + meta_gp_NA$ss_ligament + meta_gp_NA$age_y_m_o + meta_gp_NA$weight_percentiles + meta_gp_NA$btv + meta_gp_NA$ehd, na.action=na.omit)
+
+
+#with capture group
+set.seed(223)
+adonis2((adonis_table)~ meta_gp_NA$study_area + meta_gp_NA$ss_ligament + meta_gp_NA$age_y_m_o + meta_gp_NA$weight_percentiles + meta_gp_NA$btv + meta_gp_NA$ehd + meta_gp_NA$capture_group, na.action=na.omit) #this file has all 3 capture groups and the NA observations haven't been removed, but it is probably still only looking at the November ones if omitting all NA samples 
+
+## trying datasets with no nas
+set.seed(223)
+adonis2((adonis_table_no_na)~meta_gp_no_na$study_area + meta_gp_no_na$ss_ligament + meta_gp_no_na$age_y_m_o + meta_gp_no_na$weight_percentiles + meta_gp_no_na$btv + meta_gp_no_na$ehd)
+
+## no na dataset with most predictive ones- ageby1
+set.seed(223)
+adonis2((adonis_table_no_na)~meta_gp_no_na$study_area + meta_gp_no_na$ss_ligament + meta_gp_no_na$age_by1 + meta_gp_no_na$weight_5kg + meta_gp_no_na$btv + meta_gp_no_na$ehd)
+
+## no na dataset with most predictive ones- agebypercent
+set.seed(223) #study area and age significant in model 
+adonis2((adonis_table_no_na)~meta_gp_no_na$study_area + meta_gp_no_na$ss_ligament + meta_gp_no_na$age_percentiles + meta_gp_no_na$weight_5kg + meta_gp_no_na$btv + meta_gp_no_na$ehd)
+
+
+#change the order up for fun
+set.seed(223) # order of significance- study area and age significant in model
+adonis2((adonis_table_no_na)~ meta_gp_no_na$study_area  + meta_gp_no_na$ehd + meta_gp_no_na$ss_ligament + meta_gp_no_na$btv + meta_gp_no_na$age_percentiles +  meta_gp_no_na$weight_5kg)
+
+set.seed(223)#order of r2- ss ligament, study area, and age all significant in model
+adonis2((adonis_table_no_na)~ meta_gp_no_na$ss_ligament + meta_gp_no_na$study_area  + meta_gp_no_na$age_percentiles +  meta_gp_no_na$weight_5kg + meta_gp_no_na$ehd +  + meta_gp_no_na$btv )
+
+set.seed(223)
+adonis2((adonis_table_no_na)~meta_gp_no_na$study_area + meta_gp_no_na$ss_ligament + meta_gp_no_na$ehd + meta_gp_no_na$btv + meta_gp_no_na$age_percentiles + meta_gp_no_na$weight_5kg )
+
+#only the significant ones- different orders- study area always significant, sometimes ss or ehd
+set.seed(223)# order of significance - study area significant in model
+adonis2((adonis_table_no_na)~ meta_gp_no_na$study_area  + meta_gp_no_na$ehd + meta_gp_no_na$ss_ligament)
+
+set.seed(223) #study area significant
+adonis2((adonis_table_no_na)~ meta_gp_no_na$study_area  + meta_gp_no_na$ss_ligament + meta_gp_no_na$ehd)
+
+set.seed(223) # ehd and study area significant
+adonis2((adonis_table_no_na)~ meta_gp_no_na$ehd + meta_gp_no_na$study_area  + meta_gp_no_na$ss_ligament)
+
+set.seed(223) # all 3 significant 
+adonis2((adonis_table_no_na)~ meta_gp_no_na$ehd +  meta_gp_no_na$ss_ligament + meta_gp_no_na$study_area)
+
+set.seed(223)# order of r2- ss and study area significant 
+adonis2((adonis_table_no_na)~ meta_gp_no_na$ss_ligament + meta_gp_no_na$study_area + meta_gp_no_na$ehd)
+
+set.seed(223) #ss and study area significant 
+adonis2((adonis_table_no_na)~ meta_gp_no_na$ss_ligament +  meta_gp_no_na$ehd + meta_gp_no_na$study_area)
+
+
+### trying code out with by margin and interactions 
+
+set.seed(223)# order of significance - study area significant in model, marginal effects- pulls out study area
+adonis2((adonis_table_no_na)~ meta_gp_no_na$study_area  + meta_gp_no_na$ehd + meta_gp_no_na$ss_ligament, by="margin", permutations=999) #study area is most significant
+
+set.seed(223)# interactions- use the * and see if anything interacts?? 
+adonis2((adonis_table_no_na)~ meta_gp_no_na$study_area  * meta_gp_no_na$ehd * meta_gp_no_na$ss_ligament, permutations=999)
+
+set.seed(223)# interactions
+adonis2((adonis_table_no_na)~ meta_gp_no_na$study_area  * meta_gp_no_na$adj_age,  permutations=999)
+
+set.seed(223) # all 6 
+adonis2((adonis_table_no_na)~meta_gp_no_na$study_area + meta_gp_no_na$ss_ligament + meta_gp_no_na$age_y_m_o + meta_gp_no_na$weight_5kg + meta_gp_no_na$btv + meta_gp_no_na$ehd, by="margin", permutations=999)
+
+```
+
+#Stacked bar charts- organized with "other" category
+```{r}
+#Percent reads assigned to each level-note have to run grouping code in each taxa first to have these 
+# NOte ran these on data before transformed to rarified or relative abundance
+sum(sample_sums(phyloseq_16S_phylum)) / sum(sample_sums(phyloseq_16S_good_pronghorn))
+sum(sample_sums(phyloseq_16S_class)) / sum(sample_sums(phyloseq_16S_good_pronghorn))
+sum(sample_sums(phyloseq_16S_order)) / sum(sample_sums(phyloseq_16S_good_pronghorn))
+sum(sample_sums(phyloseq_16S_family)) / sum(sample_sums(phyloseq_16S_good_pronghorn))
+sum(sample_sums(phyloseq_16S_genus)) / sum(sample_sums(phyloseq_16S_good_pronghorn))
+sum(sample_sums(phyloseq_16S_species)) / sum(sample_sums(phyloseq_16S_good_pronghorn))
+
+```
+
+##Phylum
+```{r}
+# Group all ASVs by phylum
+phyloseq_16S_phylum <- tax_glom(phyloseq_16S_good_pronghorn, taxrank = "Phylum")
+phyloseq_16S_phylum #how many?
+view(otu_table(phyloseq_16S_phylum))
+
+## Test % in each level top 10, 15, 20 
+
+# Identify the top 10 phylum 
+phylum_10 <- names(sort(taxa_sums(phyloseq_16S_phylum), TRUE)[1:10])
+phylum_10
+
+# Keep data for only the top 10 phyla
+phyloseq_16S_phylum_prune10 <- prune_taxa(phylum_10, phyloseq_16S_phylum)
+
+
+# Identify the top 15 phyla 
+phylum_15 <- names(sort(taxa_sums(phyloseq_16S_phylum), TRUE)[1:15])
+
+# Keep data for only the top 15 phyla
+phyloseq_16S_phylum_prune15 <- prune_taxa(phylum_15, phyloseq_16S_phylum)
+
+
+# Identify the top 20 phyla 
+phylum_20 <- names(sort(taxa_sums(phyloseq_16S_phylum), TRUE)[1:20])
+
+# Keep data for only the top 20 phyla
+phyloseq_16S_phylum_prune20 <- prune_taxa(phylum_20, phyloseq_16S_phylum)
+
+# Check percentage of reads that fall within top 10 phyla, 15, 20 
+
+sum(sample_sums(phyloseq_16S_phylum_prune10)) / sum(sample_sums(phyloseq_16S_phylum))
+sum(sample_sums(phyloseq_16S_phylum_prune15)) / sum(sample_sums(phyloseq_16S_phylum))
+sum(sample_sums(phyloseq_16S_phylum_prune20)) / sum(sample_sums(phyloseq_16S_phylum))
+
+# Make table
+phylum_all_table <- cbind(tax_table(phyloseq_16S_phylum))
+View(phylum_all_table)
+
+
+################# top 3 stacked bar chart #################
+
+# Identify the top 10 phylum 
+phylum_3 <- names(sort(taxa_sums(phyloseq_16S_phylum), TRUE)[1:3])
+phylum_3
+
+# Keep data for only the top 3 phyla
+phyloseq_16S_phylum_prune3 <- prune_taxa(phylum_3, phyloseq_16S_phylum)
+
+#how much data is kept? 99.3822
+
+sum(sample_sums(phyloseq_16S_phylum_prune3)) / sum(sample_sums(phyloseq_16S_phylum))
+
+#re-name some phyla to other....
+phylum_3_table <- phylum_all_table
+phylum_3_table<- tibble::rownames_to_column((as.data.frame(phylum_3_table)), "ASV") #add ASV as column
+View(phylum_3_table)#check
+
+phylum_3_table$Phylum1<-phylum_3_table$Phylum #makes new column for renaming
+
+# remane to top 3
+phylum_3_table$Phylum1[phylum_3_table$ASV == "c98ad6619f46023e3002a2ac46d4c3c8"] <- "top_3" #1
+phylum_3_table$Phylum1[phylum_3_table$ASV == "71282296d5ccfc4d80d1f3efe8070b31"] <- "top_3" #2
+phylum_3_table$Phylum1[phylum_3_table$ASV == "eaea71efee9cdf95b48f6c80830d6062"] <- "top_3" #3
+
+View(phylum_3_table) # check and it worked
+phylum_3_table$Phylum[phylum_3_table$Phylum1 !="top_3"] <- "[ Additional phyla"#rename ones that are not top 3 to other in original column
+View(phylum_3_table) #check
+
+#make ASV row name again
+phylum_3_table1<- tibble::column_to_rownames((as.data.frame(phylum_3_table)), "ASV") 
+
+#need to remove Phylum1 column
+phylum3_relabeled<-phylum_3_table1
+phylum3_relabeled= subset(phylum_3_table1, select=-c(Phylum1))
+View(phylum3_relabeled) #check-yes it worked
+str(phylum3_relabeled)#check structure
+phylum3_relabeled1 <- as.matrix(phylum3_relabeled)#create a matrix and maybe that will work?
+str(phylum3_relabeled1)#check structure now
+#try to merge into the phylum classified phyloseq object 
+phyloseq_16S_phylum3_sort<-phyloseq_16S_phylum #create new object so I don't ruin the old one...
+phyloseq_16S_phylum3_sort
+
+#need to be able to upload as new taxonomy table 
+tax_table(phyloseq_16S_phylum3_sort) <- phylum3_relabeled1 #try matrix one... it seemed to work 
+ 
+# Transform abundances to percentages
+phylum3_all_merge1 <- merge_samples(phyloseq_16S_phylum3_sort, "study_area")
+phylum3_all_percent1 <- transform_sample_counts(phylum3_all_merge1, function(x) 100 * x/sum(x))
+phylum3_all_percent1 #check taxa count
+
+# Plot relative abundances
+phylum3_abundance_sort <- plot_bar(phylum3_all_percent1, fill = "Phylum") + xlab("Study areas south of I-80                    Study areas north of I-80") + ylab("Relative abundance (%)") + theme_bw() 
+
+phylum3_abundance_sort + theme(text = element_text(size = 14, family= "Times New Roman")) + theme(legend.text = element_text(size = 14, color="black")) + theme(axis.text = element_text(size = 14, color= "black")) + theme(axis.title = element_text(size = 14, color= "black"))+ scale_fill_manual(values=c("#000000","#b6dbff","#db6d00","#ffff6d")) + geom_bar(stat="identity", size=2)
+
+ggsave("phylum3_stack_bar.tiff", height = 4, width= 7, dpi =300)
+
+
+```
+##Class
+```{r}
+# Group all ASVs by class
+phyloseq_16S_class <- tax_glom(phyloseq_16S_good_pronghorn, taxrank = "Class")
+phyloseq_16S_class #how many?
+
+# Identify the top 10 class 
+class_10 <- names(sort(taxa_sums(phyloseq_16S_class), TRUE)[1:10])
+class_10
+
+# Keep data for only the top 10 class
+phyloseq_16S_class_prune10 <- prune_taxa(class_10, phyloseq_16S_class)
+
+# Identify the top 15 class
+class_15 <- names(sort(taxa_sums(phyloseq_16S_class), TRUE)[1:15])
+
+# Keep data for only the top 15 class
+phyloseq_16S_class_prune15 <- prune_taxa(class_15, phyloseq_16S_class)
+
+# Identify the top 20 class
+class_20 <- names(sort(taxa_sums(phyloseq_16S_class), TRUE)[1:20])
+
+# Keep data for only the top 20 class
+phyloseq_16S_class_prune20 <- prune_taxa(class_20, phyloseq_16S_class)
+
+# Check percentage of reads that fall within top 10, 15, 20 class
+
+sum(sample_sums(phyloseq_16S_class_prune10)) / sum(sample_sums(phyloseq_16S_class))
+sum(sample_sums(phyloseq_16S_class_prune15)) / sum(sample_sums(phyloseq_16S_class))
+sum(sample_sums(phyloseq_16S_class_prune20)) / sum(sample_sums(phyloseq_16S_class))
+
+# Make table
+class_all_table <- cbind(tax_table(phyloseq_16S_class))
+View(class_all_table) #check
+
+############ top 5 classes ####################
+
+# Identify the top 5 class 
+class_5 <- names(sort(taxa_sums(phyloseq_16S_class), TRUE)[1:5])
+class_5
+
+# Keep data for only the top 5 class
+phyloseq_16S_class_prune5 <- prune_taxa(class_5, phyloseq_16S_class)
+#what % are in top 5? 99.355%
+sum(sample_sums(phyloseq_16S_class_prune5)) / sum(sample_sums(phyloseq_16S_class))
+
+#re-name classes to other....
+class_5_table <- class_all_table
+class_5_table<- tibble::rownames_to_column((as.data.frame(class_5_table)), "ASV") #add ASV as column
+View(class_5_table)#check
+
+# rename to top 5 - get these names from class_5 above
+class_5_table$Class1<-class_5_table$Class#makes new column for renaming
+class_5_table$Class1[class_5_table$ASV == "c98ad6619f46023e3002a2ac46d4c3c8"] <- "top_5" #1
+class_5_table$Class1[class_5_table$ASV == "71282296d5ccfc4d80d1f3efe8070b31"] <- "top_5" #2
+class_5_table$Class1[class_5_table$ASV == "031d5b4f831ede5dc401cbff55baa868"] <- "top_5" #3
+class_5_table$Class1[class_5_table$ASV == "eaea71efee9cdf95b48f6c80830d6062"] <- "top_5" #4
+class_5_table$Class1[class_5_table$ASV == "5db95d339a4a09fdb9a05676ef4af245"] <- "top_5" #5
+
+View(class_5_table) # check and it worked
+class_5_table$Class[class_5_table$Class1 !="top_5"] <- "[Additional classes"
+View(class_5_table) # works to here
+
+#make ASV row name again
+class_5_table1<- tibble::column_to_rownames((as.data.frame(class_5_table)), "ASV") 
+
+#need to remove Class1 column
+class_5relabeled<-class_5_table1
+class_5relabeled= subset(class_5_table1, select=-c(Class1))
+class_5relabeled #check-yes it worked
+str(class_5relabeled) #check
+class_5relabeled1 <- as.matrix(class_5relabeled)#create a matrix
+str(class_5relabeled1) #check
+#try to merge into the class classified phyloseq object 
+phyloseq_16S_class_sort5<-phyloseq_16S_class #create new object so I dont ruin the old one...
+phyloseq_16S_class_sort5
+
+#need to be able to upload as new taxonomy table 
+tax_table(phyloseq_16S_class_sort5) <- class_5relabeled1 #try matrix one... it seemed to work 
+
+# Transform abundances to percentages
+class_all_merge5 <- merge_samples(phyloseq_16S_class_sort5, "study_area")
+class_all_percent5 <- transform_sample_counts(class_all_merge5, function(x) 100 * x/sum(x))
+class_all_percent5
+
+# Plot relative abundances
+class_abundance_sort5 <- plot_bar(class_all_percent5, fill = "Class") + xlab("Study areas south of I-80                    Study areas north of I-80") + ylab("Relative abundance (%)") + theme_bw() 
+
+class_abundance_sort5 + theme(text = element_text(size = 12, family= "Times New Roman")) + theme(legend.text = element_text(size = 12, color="black")) + theme(axis.text = element_text(size = 12, color= "black")) + theme(axis.title = element_text(size = 12, color= "black"))+ scale_fill_manual(values=c("#000000","#ffb6db",
+ "#490092","#6db6ff","#ffff6d",  "#924900"))+ geom_bar(stat="identity", size=2)
+
+ggsave("class5_stack_bar.tiff", height = 4, width= 7, dpi =300)
+
+```
+
+##Order
+
+```{r}
+# Group all ASVs by order
+phyloseq_16S_order <- tax_glom(phyloseq_16S_good_pronghorn, taxrank = "Order")
+phyloseq_16S_order #how many?
+
+# Identify the top 10 order 
+order_10 <- names(sort(taxa_sums(phyloseq_16S_order), TRUE)[1:10])
+order_10
+
+# Keep data for only the top 10 order
+phyloseq_16S_order_prune10 <- prune_taxa(order_10, phyloseq_16S_order)
+
+# Identify the top 15 order 
+order_15 <- names(sort(taxa_sums(phyloseq_16S_order), TRUE)[1:15])
+
+# Keep data for only the top 15 order
+phyloseq_16S_order_prune15 <- prune_taxa(order_15, phyloseq_16S_order)
+
+# Identify the top 20 order 
+order_20 <- names(sort(taxa_sums(phyloseq_16S_order), TRUE)[1:20])
+
+# Keep data for only the top 20 order
+phyloseq_16S_order_prune20 <- prune_taxa(order_20, phyloseq_16S_order)
+
+# Check percentage of reads that fall within top 10, 15, 20 order
+sum(sample_sums(phyloseq_16S_order_prune10)) / sum(sample_sums(phyloseq_16S_order))
+sum(sample_sums(phyloseq_16S_order_prune15)) / sum(sample_sums(phyloseq_16S_order))
+sum(sample_sums(phyloseq_16S_order_prune20)) / sum(sample_sums(phyloseq_16S_order))
+
+# Make table
+order_all_table <- cbind(tax_table(phyloseq_16S_order))
+View(order_all_table) #check
+
+#re-name some orders to other....
+order_new_table <- order_all_table
+order_new_table<- tibble::rownames_to_column((as.data.frame(order_new_table)), "ASV") #add ASV as column
+View(order_new_table)#check
+order_new_table$Order1<-order_new_table$Order#makes new column for renaming
+
+# remane to top 10- get from order_10 above
+order_new_table$Order1[order_new_table$ASV == "c98ad6619f46023e3002a2ac46d4c3c8"] <- "top_10" #1
+order_new_table$Order1[order_new_table$ASV == "71282296d5ccfc4d80d1f3efe8070b31"] <- "top_10" #2
+order_new_table$Order1[order_new_table$ASV == "50a8c75fdd16c0ca4dda6f988c2c2eec"] <- "top_10" #3
+order_new_table$Order1[order_new_table$ASV == "1de172717207cd6bc97db6e1b08751a1"] <- "top_10" #4
+order_new_table$Order1[order_new_table$ASV == "4201498e764c4b51cf854920dd69908c"] <- "top_10" #5
+order_new_table$Order1[order_new_table$ASV == "d0f45e80c1fb6a77d35302d8365d422b"] <- "top_10" #6
+order_new_table$Order1[order_new_table$ASV == "031d5b4f831ede5dc401cbff55baa868"] <- "top_10" #7
+order_new_table$Order1[order_new_table$ASV == "eaea71efee9cdf95b48f6c80830d6062"] <- "top_10" #8
+order_new_table$Order1[order_new_table$ASV == "7ec675da9356e0f456f548cfd0c227a1"] <- "top_10" #9
+order_new_table$Order1[order_new_table$ASV == "19dfe321f504d3687fce21922a42eb84"] <- "top_10" #10
+
+View(order_new_table) # check and it worked
+order_new_table$Order[order_new_table$Order1 !="top_10"] <- "[ Additional orders" #rename ones that are not top 10 to "additional orders"
+View(order_new_table) #check
+
+#make ASV row name again
+order_new_table1<- tibble::column_to_rownames((as.data.frame(order_new_table)), "ASV") 
+
+#need to remove Order1 column
+order_relabeled<-order_new_table1
+order_relabeled= subset(order_new_table1, select=-c(Order1))
+View(order_relabeled) #check-yes it worked
+str(order_relabeled)#check structure
+order_relabeled1 <- as.matrix(order_relabeled)#create a matrix and maybe that will work?
+str(order_relabeled1)#check structure now
+#try to merge into the phylum classified phyloseq object 
+phyloseq_16S_order_sort<-phyloseq_16S_order#create new object so I don't ruin the old one...
+phyloseq_16S_order_sort
+
+#need to be able to upload as new taxonomy table 
+tax_table(phyloseq_16S_order_sort) <- order_relabeled1 #try matrix one... it seemed to work 
+ 
+# Transform abundances to percentages
+order_all_merge1 <- merge_samples(phyloseq_16S_order_sort, "study_area")
+order_all_percent1 <- transform_sample_counts(order_all_merge1, function(x) 100 * x/sum(x))
+order_all_percent1
+
+# Plot relative abundances
+order_abundance_sort <- plot_bar(order_all_percent1, fill = "Order") + xlab("Study areas south of I-80                    Study areas north of I-80") + ylab("Relative abundance (%)") + theme_bw()
+
+order_abundance_sort + theme(text = element_text(size = 12, family= "Times New Roman")) + theme(legend.text = element_text(size = 12, color="black")) + theme(axis.text = element_text(size = 12, color= "black")) + theme(axis.title = element_text(size = 12, color= "black")) + scale_fill_manual(values=friendly15_colors) + geom_bar(stat="identity", size=2)
+
+
+ggsave("order_stack_bar1.png", height = 7, width= 10, dpi =300)
+
+ggsave("order_stack_bar2_14.tiff", height = 4, width= 7, dpi =300)
+
+```
+
+##Family 
+```{r}
+# Group all ASVs by family
+phyloseq_16S_family <- tax_glom(phyloseq_16S_good_pronghorn, taxrank = "Family")
+phyloseq_16S_family #how many?
+
+# Identify the top 10 family 
+family_10 <- names(sort(taxa_sums(phyloseq_16S_family), TRUE)[1:10])
+
+# Keep data for only the top 10 family
+phyloseq_16S_family_prune10 <- prune_taxa(family_10, phyloseq_16S_family)
+
+# Identify the top 15 family 
+family_15 <- names(sort(taxa_sums(phyloseq_16S_family), TRUE)[1:15])
+family_15
+
+# Keep data for only the top 15 family
+phyloseq_16S_family_prune15 <- prune_taxa(family_15, phyloseq_16S_family)
+
+# Identify the top 20 family
+family_20 <- names(sort(taxa_sums(phyloseq_16S_family), TRUE)[1:20])
+
+# Keep data for only the top 20 family
+phyloseq_16S_family_prune20 <- prune_taxa(family_20, phyloseq_16S_family)
+
+# Check percentage of reads that fall within top 10, 15, 20 family
+sum(sample_sums(phyloseq_16S_family_prune10)) / sum(sample_sums(phyloseq_16S_family))
+sum(sample_sums(phyloseq_16S_family_prune15)) / sum(sample_sums(phyloseq_16S_family))
+sum(sample_sums(phyloseq_16S_family_prune20)) / sum(sample_sums(phyloseq_16S_family))
+
+# Make table
+family_all_table <- cbind(tax_table(phyloseq_16S_family))
+View(family_all_table)
+
+#re-name some families to other....
+family_15_table <- family_all_table
+family_15_table<- tibble::rownames_to_column((as.data.frame(family_15_table)), "ASV") #add ASV as column
+View(family_15_table)#check
+family_15_table$Family1<-family_15_table$Family #create new family column and use names to rename from family_15
+family_15_table$Family1[family_15_table$ASV == "c98ad6619f46023e3002a2ac46d4c3c8"] <- "top_15" #1
+family_15_table$Family1[family_15_table$ASV == "50a8c75fdd16c0ca4dda6f988c2c2eec"] <- "top_15" #2
+family_15_table$Family1[family_15_table$ASV == "1de172717207cd6bc97db6e1b08751a1"] <- "top_15" #3
+family_15_table$Family1[family_15_table$ASV == "0299bf943b1c94440df8fa314b23f6ea"] <- "top_15"#4
+family_15_table$Family1[family_15_table$ASV == "71282296d5ccfc4d80d1f3efe8070b31"] <- "top_15"#5
+family_15_table$Family1[family_15_table$ASV == "4201498e764c4b51cf854920dd69908c"] <- "top_15" #6
+family_15_table$Family1[family_15_table$ASV == "e91c07800212efcd149570c655c1f309"] <- "top_15" #7
+family_15_table$Family1[family_15_table$ASV == "364bfe528179f002843b43f05232fd02"] <- "top_15" #8
+family_15_table$Family1[family_15_table$ASV == "960dbc88cac608f0c12a8220d6f58897"] <- "top_15" #9
+family_15_table$Family1[family_15_table$ASV == "d0f45e80c1fb6a77d35302d8365d422b"] <- "top_15" #10
+family_15_table$Family1[family_15_table$ASV == "031d5b4f831ede5dc401cbff55baa868"] <- "top_15" #11
+family_15_table$Family1[family_15_table$ASV == "0e4d8fa5fe667b9fb304d1d4278ff81e"] <- "top_15" #12
+family_15_table$Family1[family_15_table$ASV == "eaea71efee9cdf95b48f6c80830d6062"] <- "top_15" #13
+family_15_table$Family1[family_15_table$ASV == "867083a73d79b147487ac2c00b40ca19"] <- "top_15" #14
+family_15_table$Family1[family_15_table$ASV == "7ec675da9356e0f456f548cfd0c227a1"] <- "top_15" #15
+
+View(family_15_table) # check and it worked
+family_15_table$Family[family_15_table$Family1 !="top_15"] <- "[Additional families]" #rename ones not in top 15 to additional families in original column
+View(family_15_table) # works to here
+
+#make ASV row name again
+family_15_table1<- tibble::column_to_rownames((as.data.frame(family_15_table)), "ASV") 
+
+#need to remove Family1 column
+family_15relabeled<-family_15_table1
+family_15relabeled= subset(family_15_table1, select=-c(Family1))
+family_15relabeled #check-yes it worked
+str(family_15relabeled) #check structure
+family_15relabeled1 <- as.matrix(family_15relabeled)#create a matrix 
+str(family_15relabeled1) #check structure again
+#try to merge into the family classified phyloseq object 
+phyloseq_16S_family_sort15<-phyloseq_16S_family #create new object so I dont ruin the old one...
+phyloseq_16S_family_sort15 #check 
+
+#need to be able to upload as new taxonomy table 
+tax_table(phyloseq_16S_family_sort15) <- family_15relabeled1 #try matrix one... it seemed to work 
+
+# Transform abundances to percentages
+family_all_merge15 <- merge_samples(phyloseq_16S_family_sort15, "study_area")
+family_all_percent15 <- transform_sample_counts(family_all_merge15, function(x) 100 * x/sum(x))
+family_all_percent15
+
+# Plot relative abundances
+family_abundance_sort15 <- plot_bar(family_all_percent15, fill = "Family") + xlab("Study areas south of I-80                    Study areas north of I-80") + ylab("Relative abundance (%)") + theme_bw() 
+
+family_abundance_sort15 + theme(text = element_text(size = 12, family= "Times New Roman")) + theme(legend.text = element_text(size = 12, color="black")) + theme(axis.text = element_text(size = 12, color= "black")) + theme(axis.title = element_text(size = 12, color= "black"))+ scale_fill_manual(values=friendly16_colors)+ geom_bar(stat="identity", size=2)
+
+ggsave("family_stack_bar.png", height=7, width=10, dpi= 300)
+
+ggsave("family_stack_bar2_14.tiff", height=4.5, width=7, dpi= 300)                                                                            
+```
+### extra family ones (supplemental figures) 
+```{r}
+#These are similar to the family graph of top 15 families above, but instead of grouping by study area we group by other pronghorn metrics to see if we see different patterns in family abundance between groups
+
+##########  By individual sample (each pronghorn) ##########################
+
+family_all_percent15_samples <- transform_sample_counts(phyloseq_16S_family_sort15, function(x) 100 * x/sum(x))
+
+# Plot relative abundances
+family_abundance_sort15_samples <- plot_bar(family_all_percent15_samples, fill = "Family") + xlab("Sample") + ylab("Relative abundance (%)") + theme_bw()
+
+family_abundance_sort15_samples + theme(text = element_text(size = 9, family= "Times New Roman"))  + theme(legend.text = element_text(size = 9, color="black")) + theme(axis.text = element_text(size = 9, color= "black")) + theme(axis.title = element_text(size = 9, color= "black")) + theme(axis.text.x = element_text(angle = 90, size=4))+ geom_bar(stat="identity", size=2) + scale_fill_manual(values=friendly16_colors) 
+
+ggsave("sbc_family_individual_animal.png", width=12, height=7, dpi = 300)
+
+ggsave("sbc_family_individual_animal1.tiff", width=7.5, height=5, dpi = 300)
+
+
+############# by ss ligament ################
+
+# Transform abundances to percentages
+family_all_merge15_ss_ligament1 <- merge_samples(phyloseq_16S_family_sort15, "ss_ligament")
+#View(sample_data(family_all_merge15_ss_ligament1))
+family_all_merge15_ss_ligament<- subset_samples(family_all_merge15_ss_ligament1, ss_ligament!="NR")
+family_all_percent15_ss_ligament <- transform_sample_counts(family_all_merge15_ss_ligament, function(x) 100 * x/sum(x))
+family_all_percent15_ss_ligament
+
+# Plot relative abundances
+family_abundance_sort15_ss_ligament <- plot_bar(family_all_percent15_ss_ligament, fill = "Family") + xlab("SS-Ligament (Inches)") + ylab("Relative abundance (%)") + theme_bw()
+
+family_abundance_sort15_ss_ligament  + theme(text = element_text(size = 12, family="Times New Roman")) + theme(plot.title = element_text(hjust = 0.5, size = 12)) + theme(legend.text = element_text(size = 11, color="black")) + theme(axis.text = element_text(size = 11, color= "black")) + theme(axis.title = element_text(size = 12, color= "black"))+ scale_fill_manual(values=friendly16_colors)+ geom_bar(stat="identity", size=2)
+
+ggsave("sbc_family_ss_ligament.png", width=10, height=7, dpi=300)
+
+ggsave("sbc_family_ss_ligament2_14.tiff", width=7.5, height=4.5, dpi=300)
+
+######## by capture group ###################
+
+# Transform abundances to percentages
+family_all_merge15_capture_group  <- merge_samples(phyloseq_16S_family_sort15,"capture_group")
+family_all_percent15_capture_group  <- transform_sample_counts(family_all_merge15_capture_group , function(x) 100 * x/sum(x))
+family_all_percent15_capture_group 
+
+# Plot relative abundances
+family_abundance_sort15_capture_group <- plot_bar(family_all_percent15_capture_group , fill = "Family") + xlab("Capture period") + ylab("Relative abundance (%)") + theme_bw()
+
+family_abundance_sort15_capture_group   + theme(text = element_text(size = 12, family="Times New Roman")) + theme(plot.title = element_text(hjust = 0.5, size = 12)) + theme(legend.text = element_text(size = 12, color="black")) + theme(axis.text = element_text(size = 12, color= "black")) + theme(axis.title = element_text(size = 12, color= "black"))+ scale_fill_manual(values=friendly16_colors) + scale_x_discrete(labels=c("November 2013", "February 2014", "November 2014")) + geom_bar(stat="identity", size=2)
+
+ggsave("sbc_family_capture_period.png", width=10, height=7, dpi=300)
+
+ggsave("sbc_family_capture_period_2_14.tiff", width=7.5, height=4.5, dpi=300)
+
+
+############ by I80  ##########################
+# Transform abundances to percentages
+family_all_merge15_i80 <- merge_samples(phyloseq_16S_family_sort15,"i_80")
+family_all_percent15_i80 <- transform_sample_counts(family_all_merge15_i80, function(x) 100 * x/sum(x))
+family_all_percent15_i80
+
+# Plot relative abundances
+family_abundance_sort15_i80 <- plot_bar(family_all_percent15_i80, fill = "Family") + xlab("I-80") + ylab("Relative abundance (%)") + theme_bw()
+
+family_abundance_sort15_i80 + theme(text = element_text(size = 12, family="Times New Roman")) + theme(plot.title = element_text(hjust = 0.5, size = 12)) + theme(legend.text = element_text(size = 12, color="black")) + theme(axis.text = element_text(size = 12, color= "black")) + theme(axis.title = element_text(size = 12, color= "black"))+ scale_fill_manual(values=friendly16_colors) + geom_bar(stat="identity", size=2)
+
+ggsave("sbc_family_i80.png", width=10, height=7, dpi=300)
+
+ggsave("sbc_family_i80_2_14.tiff", width=7.5, height=4.5, dpi=300)
+
+```
+##Genus
+```{r}
+# Group all ASVs by genus
+phyloseq_16S_genus <- tax_glom(phyloseq_16S_good_pronghorn, taxrank = "Genus")
+phyloseq_16S_genus #how many?
+
+# Identify the top 10 genus 
+genus_10 <- names(sort(taxa_sums(phyloseq_16S_genus), TRUE)[1:10])
+
+# Keep data for only the top 10 genus
+phyloseq_16S_genus_prune10 <- prune_taxa(genus_10, phyloseq_16S_genus)
+
+# Identify the top 15 genus 
+genus_15 <- names(sort(taxa_sums(phyloseq_16S_genus), TRUE)[1:15])
+
+# Keep data for only the top 15 genus
+phyloseq_16S_genus_prune15 <- prune_taxa(genus_15, phyloseq_16S_genus)
+
+# Identify the top 20 genus
+genus_20 <- names(sort(taxa_sums(phyloseq_16S_genus), TRUE)[1:20])
+
+# Keep data for only the top 20 genus
+phyloseq_16S_genus_prune20 <- prune_taxa(genus_20, phyloseq_16S_genus)
+
+# Check percentage of reads that fall within top 10, 15, 20 genus
+
+sum(sample_sums(phyloseq_16S_genus_prune10)) / sum(sample_sums(phyloseq_16S_genus))
+sum(sample_sums(phyloseq_16S_genus_prune15)) / sum(sample_sums(phyloseq_16S_genus))
+sum(sample_sums(phyloseq_16S_genus_prune20)) / sum(sample_sums(phyloseq_16S_genus))
+
+```
+##Species
+```{r}
+# Group all ASVs by species
+phyloseq_16S_species <- tax_glom(phyloseq_16S_good_pronghorn, taxrank = "Species")
+phyloseq_16S_species #how many?
+
+# Identify the top 10 species 
+species_10 <- names(sort(taxa_sums(phyloseq_16S_species), TRUE)[1:10])
+
+# Keep data for only the top 10 species
+phyloseq_16S_species_prune10 <- prune_taxa(species_10, phyloseq_16S_species)
+
+# Identify the top 15 species 
+species_15 <- names(sort(taxa_sums(phyloseq_16S_species), TRUE)[1:15])
+
+# Keep data for only the top 15 species
+phyloseq_16S_species_prune15 <- prune_taxa(species_15, phyloseq_16S_species)
+
+# Identify the top 20 species
+species_20 <- names(sort(taxa_sums(phyloseq_16S_species), TRUE)[1:20])
+
+# Keep data for only the top 20 species
+phyloseq_16S_species_prune20 <- prune_taxa(species_20, phyloseq_16S_species)
+
+# Check percentage of reads that fall within top 10, 15, 20 species
+
+sum(sample_sums(phyloseq_16S_species_prune10)) / sum(sample_sums(phyloseq_16S_species))
+sum(sample_sums(phyloseq_16S_species_prune15)) / sum(sample_sums(phyloseq_16S_species))
+sum(sample_sums(phyloseq_16S_species_prune20)) / sum(sample_sums(phyloseq_16S_species))
+
+# make table
+species_table <- cbind(tax_table(phyloseq_16S_species))
+View(species_table)
+```
+
+###exploring other stacked bar charts
+```{r}
+##########top 10 phyla ########################
+# re-name some phyla to other....
+phylum_new_table <- phylum_all_table
+phylum_new_table<- tibble::rownames_to_column((as.data.frame(phylum_new_table)), "ASV") #add ASV as column
+View(phylum_new_table)#check
+
+phylum_new_table$Phylum1<-phylum_new_table$Phylum #makes new column for renaming
+
+# remane to top 10
+phylum_new_table$Phylum1[phylum_new_table$ASV == "c98ad6619f46023e3002a2ac46d4c3c8"] <- "top_10" #1
+phylum_new_table$Phylum1[phylum_new_table$ASV == "71282296d5ccfc4d80d1f3efe8070b31"] <- "top_10" #2
+phylum_new_table$Phylum1[phylum_new_table$ASV == "eaea71efee9cdf95b48f6c80830d6062"] <- "top_10" #3
+phylum_new_table$Phylum1[phylum_new_table$ASV == "050a2913232d49c6c3d64a75ed1ab9f8"] <- "top_10" #5
+phylum_new_table$Phylum1[phylum_new_table$ASV == "cc14e457970dffb974c217afccaa8918"] <- "top_10" #4
+phylum_new_table$Phylum1[phylum_new_table$ASV == "0df9ff0d8b5634a6f2ca7a226dcf5de7"] <- "top_10" #6
+#phylum_new_table$Phylum1[phylum_new_table$ASV == "f33c1ca6142229599fbd1700ac708c25"] <- "top_10" #7
+phylum_new_table$Phylum1[phylum_new_table$ASV == "4f46b59cb2df8d20e2b31e0948ee3e1e"] <- "top_10" #8
+phylum_new_table$Phylum1[phylum_new_table$ASV == "a5585ab61bcb632b2e9230ac82ff27e8"] <- "top_10" #9
+phylum_new_table$Phylum1[phylum_new_table$ASV == "a4d81143ad9a2e924d3840f91226669d"] <- "top_10" #10
+phylum_new_table$Phylum1[phylum_new_table$ASV == "08b4507f69b58ecc43ce91b3e9ff2b6f"] <- "top_10" #new 7
+
+View(phylum_new_table) # check and it worked
+phylum_new_table$Phylum[phylum_new_table$Phylum1 !="top_10"] <- "[ Additional phyla"
+View(phylum_new_table) #check
+
+#make ASV row name again
+phylum_new_table1<- tibble::column_to_rownames((as.data.frame(phylum_new_table)), "ASV") 
+
+#need to remove Phylum1 coulumn
+phylum_relabeled<-phylum_new_table1
+phylum_relabeled= subset(phylum_new_table1, select=-c(Phylum1))
+View(phylum_relabeled) #check-yes it worked
+str(phylum_relabeled)#check structure
+phylum_relabeled1 <- as.matrix(phylum_relabeled)#create a matrix and maybe that will work?
+str(phylum_relabeled1)#check structure now
+#try to merge into the phylum classified phyloseq object 
+phyloseq_16S_phylum_sort<-phyloseq_16S_phylum #create new object so I dont ruin the old one...
+phyloseq_16S_phylum_sort
+
+#need to be able to upload as new taxonomy table 
+tax_table(phyloseq_16S_phylum_sort) <- phylum_relabeled1 #try matrix one... it seemed to work 
+
+
+#Once I get formatting should work here on.... 
+# Transform abundances to percentages
+phylum_all_merge1 <- merge_samples(phyloseq_16S_phylum_sort, "study_area")
+phylum_all_percent1 <- transform_sample_counts(phylum_all_merge1, function(x) 100 * x/sum(x))
+phylum_all_percent1 #check taxa count
+
+# Plot relative abundances
+phylum_abundance_sort <- plot_bar(phylum_all_percent1, fill = "Phylum") + xlab("Study areas south of I-80                    Study areas north of I-80") + ylab("Relative abundance (%)") + theme_bw() 
+
+phylum_abundance_sort + theme(text = element_text(size = 14, family= "Times New Roman")) + theme(legend.text = element_text(size = 14, color="black")) + theme(axis.text = element_text(size = 14, color= "black")) + theme(axis.title = element_text(size = 14, color= "black"))+ scale_fill_manual(values=friendly15_colors) + geom_bar(stat="identity", size=2)
+
+############ top 10 classes ######################
+
+# re-name some classes to other....
+class_new_table <- class_all_table
+class_new_table<- tibble::rownames_to_column((as.data.frame(class_new_table)), "ASV") #add ASV as column
+View(class_new_table)#check
+
+class_new_table$Class1<-class_new_table$Class#makes new column for renaming
+
+# rename to top 10 - get these names from class_10 above
+class_new_table$Class1[class_new_table$ASV == "c98ad6619f46023e3002a2ac46d4c3c8"] <- "top_10" #1
+class_new_table$Class1[class_new_table$ASV == "71282296d5ccfc4d80d1f3efe8070b31"] <- "top_10" #2
+class_new_table$Class1[class_new_table$ASV == "031d5b4f831ede5dc401cbff55baa868"] <- "top_10" #3
+class_new_table$Class1[class_new_table$ASV == "eaea71efee9cdf95b48f6c80830d6062"] <- "top_10" #4
+class_new_table$Class1[class_new_table$ASV == "5db95d339a4a09fdb9a05676ef4af245"] <- "top_10" #5
+class_new_table$Class1[class_new_table$ASV == "d340ff91e2d5e8a7845c1acb33469db6"] <- "top_10" #6
+class_new_table$Class1[class_new_table$ASV == "cc14e457970dffb974c217afccaa8918"] <- "top_10" #7
+class_new_table$Class1[class_new_table$ASV == "0df9ff0d8b5634a6f2ca7a226dcf5de7"] <- "top_10" #8
+class_new_table$Class1[class_new_table$ASV == "97b445fe920d8d25561aed0837ae84c8"] <- "top_10" #9
+class_new_table$Class1[class_new_table$ASV == "050a2913232d49c6c3d64a75ed1ab9f8"] <- "top_10" #10
+View(class_new_table) # check and it worked
+class_new_table$Class[class_new_table$Class1 !="top_10"] <- "[ Additional classes"#rename ones that are not top 10 to other in original column
+View(class_new_table) #check
+
+#make ASV row name again
+class_new_table1<- tibble::column_to_rownames((as.data.frame(class_new_table)), "ASV") 
+
+#need to remove Class1 column
+class_relabeled<-class_new_table1
+class_relabeled= subset(class_new_table1, select=-c(Class1))
+View(class_relabeled) #check-yes it worked
+str(class_relabeled)#check structure
+class_relabeled1 <- as.matrix(class_relabeled)#create a matrix 
+str(class_relabeled1)#check structure now
+#try to merge into the phylum classified phyloseq object 
+phyloseq_16S_class_sort<-phyloseq_16S_class#create new object so I dont ruin the old one...
+phyloseq_16S_class_sort #check
+
+#need to be able to upload as new taxonomy table 
+tax_table(phyloseq_16S_class_sort) <- class_relabeled1 #try matrix one... it seemed to work 
+
+# Transform abundances to percentages
+class_all_merge1 <- merge_samples(phyloseq_16S_class_sort, "study_area")
+class_all_percent1 <- transform_sample_counts(class_all_merge1, function(x) 100 * x/sum(x))
+class_all_percent1 #check taxa count
+
+# Plot relative abundances
+class_abundance_sort <- plot_bar(class_all_percent1, fill = "Class") + xlab("Study areas south of I-80                    Study areas north of I-80") + ylab("Relative abundance (%)") + theme_bw()
+
+class_abundance_sort + theme(text = element_text(size = 14, family= "Times New Roman")) + theme(legend.text = element_text(size = 14, color="black")) + theme(axis.text = element_text(size = 14, color= "black")) + theme(axis.title = element_text(size = 14, color= "black")) + scale_fill_manual(values=friendly15_colors) + geom_bar(stat="identity", size=2)
+
+```
+#Envfit
+
+```{r}
+#first make PCOA in base R
+#make a distance matrix from our adonis_table community matrix
+set.seed(223)
+dist<- vegdist(adonis_table, method="bray")
+set.seed(223)
+pcoa<-cmdscale(dist, k=2, eig=TRUE, add=TRUE)#doing our pcoa outside of phyloseq
+pcoa #view outputs
+pcoa_points<-pcoa$points #pulling out and formatting just the points, not all the other data- need this later to ggplot
+pcoa_points<-as_tibble(pcoa_points, rownames="sample_name")
+pcoa_points$sample_name<-gsub("X","", as.character(pcoa_points$sample_name))
+colnames(pcoa_points)<-c("sample_name", "PCoA1", "PCoA2") #give columns names
+View(pcoa_points) #just the points, not all the other data- need this later to ggplot
+
+##Envfit part.....
+#first create metadata for only the ones we are concerned about....
+env_meta_NA<- subset(meta_gp_NA, select= c("sample_name", "study_area", "btv", "ehd", "adj_age", "ss_ligament", "body_weight"))#subset to only metadata of interest
+View(env_meta_NA)
+env_meta_NA<-recode_as_na(env_meta_NA, value= c("NA", ""))#recode to actual NA
+env_meta_NA$adj_age = as.numeric(env_meta_NA$adj_age) #make numeric
+env_meta_NA$ss_ligament = as.numeric(env_meta_NA$ss_ligament) #make numeric
+env_meta_NA$body_weight = as.numeric(env_meta_NA$body_weight)#make numeric
+env_meta_NA<- tibble::column_to_rownames((as.data.frame(env_meta_NA)), "sample_name")#puts sample names back as rows 
+
+#PCoA plot without the arrows added yet - check to make sure it looks like original PCoA we did through the phyloseq object
+study_area_bray_PCoA_plot4<-ggplot(pcoa_points, aes(x=PCoA1, y=PCoA2)) +geom_point(aes(color=env_meta_NA$study_area, shape=meta_gp_NA$i_80), size=3) + labs(title = "Base plot PCoA by Study Area") + theme(text = element_text(size = 14, family="Times New Roman")) + theme(plot.title = element_text(hjust = 0.5, size = 14)) + theme(legend.text = element_text(size = 14, color="black")) + theme(axis.text = element_text(size = 14, color= "black")) + theme(axis.title = element_text(size = 14, color= "black")) +scale_color_manual(values=friendly4_colors_green_purp) 
+study_area_bray_PCoA_plot4 #plot similar to the original study area one without the ellipses
+
+set.seed(223)
+env_vectors<- envfit(pcoa, env_meta_NA, na.rm=TRUE) # use with pcoa created below
+env_vectors #view env_fit
+
+##add the envfit to the ggplot now...
+scores<-as.data.frame(scores(env_vectors, display="vectors")) #saves the vectors
+scores<-cbind(scores, env= rownames(scores)) #saves the labels for vectors
+scores
+
+#adjust 4 colors slightly for easier arrow label reading, this one has triangles and circles for shape, arrow labels are printed with the plot 
+study_area_bray_PCoA_plot5<-ggplot(pcoa_points, aes(x=PCoA1, y=PCoA2)) + theme_bw() + geom_point(aes(color=env_meta_NA$study_area, shape=meta_gp_NA$i_80), size=1) + labs(title = "B: PCoA by Study Area with Pronghorn Life History Metrics as Vectors") + theme(text = element_text(size = 12, family="Times New Roman")) + theme(plot.title = element_text(hjust = 0.5, size = 12)) + theme(legend.text = element_text(size = 12, color="black")) + theme(axis.text = element_text(size = 12, color= "black")) + theme(axis.title = element_text(size = 12, color= "black")) +scale_color_manual(values=c("#986EAC", "#c2a5cf", "#a6dba0", "#5CAC63"), labels= c("Baggs", "Bitter Creek", "CDC", "Red Desert")) + coord_fixed() + geom_segment(data=scores, aes(x=0, xend=Dim1, y=0, yend=Dim2), arrow=arrow(length = unit(0.25, "cm")), color= "blue") + geom_text(data=scores, aes(x=Dim1, y=Dim2, label = env), color = "black", size=3.3, nudge_x = - 0.09, family="Times New Roman") +labs(shape= "I-80", color="Study area")
+
+#this one has circles and plus signs for the shape, no label so they can be added in an easy to read spot
+study_area_bray_PCoA_plot5<-ggplot(pcoa_points, aes(x=PCoA1, y=PCoA2)) + theme_bw() + geom_point(aes(color=env_meta_NA$study_area, shape=meta_gp_NA$i_80), size=2) + labs(title = "B: PCoA by Study Area with Pronghorn Life History Metrics as Vectors") + theme(text = element_text(size = 12, family="Times New Roman")) + theme(plot.title = element_text(hjust = 0.5, size = 12)) + theme(legend.text = element_text(size = 12, color="black")) + theme(axis.text = element_text(size = 12, color= "black")) + theme(axis.title = element_text(size = 12, color= "black")) +scale_color_manual(values=c("#986EAC", "#c2a5cf", "#a6dba0", "#5CAC63"), labels= c("Baggs", "Bitter Creek", "CDC", "Red Desert")) + coord_fixed() + geom_segment(data=scores, aes(x=0, xend=Dim1, y=0, yend=Dim2), arrow=arrow(length = unit(0.25, "cm")), color= "blue") +labs(shape= "I-80", color="Study area")+ scale_shape_manual(values=c(16,3),name="I-80")
+
+study_area_bray_PCoA_plot5 #view plot
+
+ggsave("PCoA_study_area_vectors.png", width=10, height=7, dpi= 300)
+
+ggsave("PCoA_study_area_vectors_no_labs.tiff", width=6, height=3.55, dpi= 300)
+
+```
+#RDA
+```{r}
+
+View(env_meta_NA) #check this is the one I want to use
+RDA_meta_NA<- subset(env_meta_NA, select= c( "adj_age", "ss_ligament", "body_weight"))#subset to only metadata of interest
+View(RDA_meta_NA)# only the numerical predictors 
+
+# check for any correlations
+RDA_cor_matrix<-cor(RDA_meta_NA, use="complete.obs", method="pearson")#makes correlation matrix
+RDA_cor_matrix<-rcorr(as.matrix(RDA_meta_NA), type = "pearson") #calculate significance
+RDA_cor_matrix # shows matrix, number samples used, and p values
+## some significant p-values but nothing looks like it is strongly correlated 
+
+#Standardize the "environmental" data
+RDA_meta_s<- decostand(RDA_meta_NA, method="standardize") #scale
+View(RDA_meta_s)
+
+# take the community table and hellinger transform it
+View(adonis_table_no_x_row) #make sure I have the table I want
+adonis_table_no_x_row2 <- as.matrix(adonis_table_no_x_row) #make no x a matrix 
+adonis_table_hellinger <- decostand(adonis_table_no_x_row2, method = "hellinger")
+View(adonis_table_hellinger) #check it 
+
+#Do the RDA
+ph_rda<-rda(adonis_table_hellinger~., data = RDA_meta_s, na.action= na.omit)
+
+summary(ph_rda) # the numeric variables only explain 2.0% of the variation
+RsquareAdj(ph_rda) #the adjusted r2 is negative.... that is sad.... 
+
+set.seed(223)
+anova.cca(ph_rda, step = 1000) #test the significance of the model... it is 0.889 so not significant 
+set.seed(223)
+anova.cca(ph_rda, step = 1000, by = "term") #lets look at each term- none are significant 
+
+
+#RDA with the categorical ones included too.... 
+
+#Prep our metadata
+RDA_meta_NA2<- subset(env_meta_NA, select= c( "study_area", "ehd", "btv"))#subset to only metadata categorical
+View(RDA_meta_NA2)# only the categorical predictors
+RDA_meta_NA2<- tibble::rownames_to_column((as.data.frame(RDA_meta_NA2)), "sample_name")#puts sample names back as column to join by for categorical metadata
+View(RDA_meta_NA2)
+RDA_meta_s<- tibble::rownames_to_column((as.data.frame(RDA_meta_s)), "sample_name")#puts sample names back as column to join by for numerical standardized metadata 
+View(RDA_meta_s)
+full_meta_RDA_s<- full_join(RDA_meta_NA2, RDA_meta_s, by="sample_name")#join so we have all metadata
+full_meta_RDA_s<- tibble::column_to_rownames((as.data.frame(full_meta_RDA_s)), "sample_name") #sample names as rows
+view(full_meta_RDA_s)
+
+#Do the full RDA
+
+ph_rda2<-rda(adonis_table_hellinger~., data = full_meta_RDA_s, na.action= na.omit)
+
+summary(ph_rda2) #we explain 8.8% of the variation in our community data... not much still
+
+RsquareAdj(ph_rda2) #adjusted R2 is only 3.1%
+
+set.seed(223)
+anova.cca(ph_rda2, step = 1000) #test the significance of the model... it is 0.001
+
+set.seed(223)
+anova.cca(ph_rda2, step = 1000, by = "term") #lets look at each term- looks like study area and ehd are significant... study area 0.001 and ehd 0.050
+
+```
+#average stats by study area
+```{r}
+
+meta_gp_num<- meta_gp #create metadata to be numeric
+
+##make factors numeric . 
+
+meta_gp_num$adj_age<-as.numeric(meta_gp_num$adj_age)
+meta_gp_num$cor_age<-as.numeric(meta_gp_num$cor_age)
+meta_gp_num$ss_ligament<-as.numeric(meta_gp_num$ss_ligament)
+meta_gp_num$max.<-as.numeric(meta_gp_num$max.)
+meta_gp_num$body_weight<-as.numeric(meta_gp_num$body_weight)
+
+View(meta_gp_num)
+
+study_area_averages<-meta_gp_num%>% #Looking at average value for each study area
+  group_by(study_area)%>%
+  summarise(mean_age=mean(adj_age, na.rm=TRUE),mean_cor_age=mean(cor_age, na.rm=TRUE),mean_ss=mean(ss_ligament, na.rm=TRUE),mean_max=mean(max., na.rm=TRUE), mean_weight=mean(body_weight, na.rm=TRUE))
+
+View(study_area_averages)
+
+study_area_averages$mean_ss<-(study_area_averages$mean_ss) * 2.54 #convert ss measurement to cm 
+
+study_area_averages_sd<-meta_gp_num%>% #Looking at average value for each study area with sd
+  group_by(study_area)%>%
+  summarise(mean_age=mean(adj_age, na.rm=TRUE), sd_age=sd(adj_age, na.rm=TRUE), mean_cor_age=mean(cor_age, na.rm=TRUE), sd_cor_age=sd(cor_age, na.rm=TRUE), mean_ss=mean(ss_ligament, na.rm=TRUE), sd_ss=sd(ss_ligament, na.rm=TRUE), mean_max=mean(max., na.rm=TRUE), sd_max=sd(max., na.rm=TRUE), mean_weight=mean(body_weight, na.rm=TRUE), sd_weight=sd(body_weight, na.rm=TRUE))
+
+View(study_area_averages_sd)
+
+study_area_averages_sd$mean_ss<-(study_area_averages_sd$mean_ss) * 2.54 #convert ss measurement to cm
+study_area_averages_sd$sd_ss<-(study_area_averages_sd$sd_ss) * 2.54 #convert ss measurement to cm
+```
+
+# exploratory - correlation table 
+```{r}
+## Correlations
+#these were run in the early part of data exploration to understand data better and see which of the numerical continuous variables were correlated with one another  
+
+#try to fix like this code so we can look at data easier without re-importing data
+
+Metadata_continuous = subset(alpha_meta1, select= c("sample_name", "Observed", "Shannon", "Simpson",  "adj_age", "cor_age",  "body_weight", "ss_ligament", "lumbar_vert", "sacrum", "base_of_tail", "caudal_vert", "max.", "b_femoris", "l_dorsi"))
+View(Metadata_continuous)#check it
+
+row.names(Metadata_continuous) <- Metadata_continuous$sample_name #make sample name row name 
+Metadata_continuous<-subset(Metadata_continuous, select = -c(sample_name)) #removes extra sample_name column
+
+sapply (Metadata_continuous, class) #what class are the data.. need to be numeric
+# Convert all other columns to numeric so it can run
+
+Metadata_continuous$adj_age<- as.numeric(Metadata_continuous$adj_age)
+Metadata_continuous$cor_age<- as.numeric(Metadata_continuous$cor_age)
+Metadata_continuous$body_weight<- as.numeric(Metadata_continuous$body_weight)
+Metadata_continuous$ss_ligament<- as.numeric(Metadata_continuous$ss_ligament)
+Metadata_continuous$lumbar_vert<- as.numeric(Metadata_continuous$lumbar_vert)
+Metadata_continuous$sacrum<- as.numeric(Metadata_continuous$sacrum)
+Metadata_continuous$base_of_tail<- as.numeric(Metadata_continuous$base_of_tail)
+Metadata_continuous$caudal_vert<- as.numeric(Metadata_continuous$caudal_vert)
+Metadata_continuous$max.<- as.numeric(Metadata_continuous$max.)
+Metadata_continuous$b_femoris<- as.numeric(Metadata_continuous$b_femoris)
+Metadata_continuous$l_dorsi<- as.numeric(Metadata_continuous$l_dorsi)
+
+## Complete correlation PEARSON
+
+cor_matrix_all<-cor(Metadata_continuous, use="complete.obs", method="pearson")#makes correlation matrix
+cor_matrix_all1<-rcorr(as.matrix(Metadata_continuous), type = "pearson") #calculate significance
+cor_matrix_all1# shows matrix, number samples used, and p values
+
+ #Code writes function## from here: http://www.sthda.com/english/wiki/correlation-matrix-formatting-and-visualization
+flattenCorrMatrix <- function(cormat, pmat) {
+  ut <- upper.tri(cormat)
+  data.frame(
+    row = rownames(cormat)[row(cormat)[ut]],
+    column = rownames(cormat)[col(cormat)[ut]],
+    cor  =(cormat)[ut],
+    p = pmat[ut]
+    )
+}
+
+cor_matrix_table_pearson<-flattenCorrMatrix(cor_matrix_all1$r, cor_matrix_all1$P) # uses created function
+View(cor_matrix_table_pearson)
+pearson_table<-as.data.frame(cor_matrix_table_pearson)
+
+#makes graphic for pearson 
+corrplot(cor_matrix_all,  title="Pearson Correlation", type="lower", order= "original", tl.col= "black", tl.srt = 35, tl.cex = 1)
+
+
+## Complete correlations SPEARMAN
+
+cor_matrix_all_sp<-cor(Metadata_continuous, use="complete.obs", method="spearman")#makes correlation matrix
+cor_matrix_all_sp2<-rcorr(as.matrix(Metadata_continuous), type = "spearman") #calculate significance
+cor_matrix_all_sp2 # shows matrix, number samples used, and p values
+
+#uses function to make easier to read
+cor_matrix_table_spearman<-flattenCorrMatrix(cor_matrix_all_sp2$r, cor_matrix_all_sp2$P) # uses created function
+View(cor_matrix_table_spearman)
+spearman_table<-as.data.frame(cor_matrix_table_spearman)
+
+#makes cool graphic for spearman
+spearman_plot<-corrplot(cor_matrix_all_sp, type="lower", order= "original", tl.col= "black", tl.srt = 35, tl.cex = 1, family="Times New Roman", cl.cex=1) #can get rid of color bar with cl.pos= "n"
+spearman_plot # shows correlation values in table form
+```
+
+# exploratory ss-ligament and ASV correlations
+```{r}
+#Note this is code from an earlier verion (clean pronghorn) it runs in there but needs to be updated to run here....
+
+# Pull asv table out of rarefied phyloseq object
+rarified_otu_df<- data.frame(otu_table(phyloseq_16S_rare))# pull out otu
+View(rarified_otu_df)# view to see
+rarified_otu_df<-t(rarified_otu_df) #flip to have samples as rows
+View(rarified_otu_df)# view to see
+
+rarified_otu_df<- tibble::rownames_to_column(as.data.frame(rarified_otu_df), "sample_name") #add sample name as column
+rarified_otu_df$sample_name<-gsub("X","", as.character(rarified_otu_df$sample_name))#remove x in sample name
+View(rarified_otu_df)#check it 
+
+#get ss_ligament values
+ss_ligament_values<- data.frame(sample_data(phyloseq_16S_rare))
+ss_ligament_values<-select(ss_ligament_values, sample_name, ss_ligament) 
+View(ss_ligament_values)
+
+#join to make one dataframe
+rarify_count_ss<- left_join(ss_ligament_values, rarified_otu_df,  by = "sample_name") # this is the joined rarified count and metadata of ss ligament. 
+
+View(rarify_count_ss)
+rarify_count_ss<- tibble::column_to_rownames((as.data.frame(rarify_count_ss)), "sample_name")#rename rows without the x
+View(rarify_count_ss)
+
+str(rarify_count_ss) #check it is numeric.
+rarify_count_ss$ss_ligament<-as.numeric(rarify_count_ss$ss_ligament) #make ss ligament numeric for correlation
+ss_rarify_cor1 <- cor(rarify_count_ss, method="spearman") #does spearman correlation
+ss_rarify_cor2<-rcorr(as.matrix(rarify_count_ss), type = "spearman") # does p values and correlation, 
+View(ss_rarify_cor2$r) #view correlations
+View(ss_rarify_cor2$P) #View p values
+
+#p-values
+ss_correlation_pvalues<-ss_rarify_cor2$P #pull out table of p values 
+ss_correlation_pvalues<-as.data.frame(ss_correlation_pvalues) #make data frame
+View(ss_correlation_pvalues) #view to check 
+ss_correlation_pvalues<-ss_correlation_pvalues[,1:2] #pull out first 2 columns
+View(ss_correlation_pvalues)#check
+colnames(ss_correlation_pvalues)[1]<- "p"
+ss_correlation_pvalues<- tibble::rownames_to_column((as.data.frame(ss_correlation_pvalues)), "ASV")#move ASV to column not row name
+View(ss_correlation_pvalues) #view to check
+ss_correlation_pvalues<-ss_correlation_pvalues[,1:2] #pull out first 2 columns, so we only have ASV and correlation with ss_ligament p-value
+
+#spearman corelaation values 
+correlation_values<-ss_rarify_cor2$r # pull out table of correlation coefficients 
+View(correlation_values)
+correlation_values<-as.data.frame(correlation_values)
+View(correlation_values)
+correlation_values_ss<-correlation_values[,1:2]#get first 2 columns
+View(correlation_values_ss) #check
+colnames(correlation_values_ss)[1]<-"cor" #name column
+correlation_values_ss<- tibble::rownames_to_column((as.data.frame(correlation_values_ss)), "ASV") #move ASV to column not row name
+correlation_values_ss<-correlation_values_ss[,1:2] #pull out first 2 columns, so we only have ASV and correlation with ss_ligament cor value 
+View(correlation_values_ss) #check
+
+cor_and_pvalue<-full_join(correlation_values_ss, ss_correlation_pvalues, by= c("ASV"= "ASV"))# join p value and cor tables together
+View(cor_and_pvalue) #check
+
+
+#time to adjust p values for false discovery rate
+
+cor_and_pvalue$adj_p <- p.adjust(cor_and_pvalue$p, method = "fdr") #adjust for false discovery rate
+cor_and_pvalue_sort<-cor_and_pvalue[order(cor_and_pvalue$adj_p),] # sort by p adj.
+View(cor_and_pvalue_sort) # none were significant after FDR
+
+```
+
+
+
+
+
