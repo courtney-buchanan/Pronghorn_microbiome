@@ -30,6 +30,6 @@ Following the above QIIME2 pipeline will produce the following outputs needed fo
 2) taxonomy.qza
 3) sepp-tree.qza
 
-Code for downstream analysis in R is in the final_pronghorn_updated_R.Rmd file
+Code for downstream analysis in R is in the final_pronghorn_PLOS_submission.Rmd file
 
-Metadata file for downstream R anlaysis will be included with paper upon publication. It is also included in this project (S6Table.csv). This can be substituted in the R code for the metadata file "7_11_final_pronghorn_metadata.csv" 
+Metadata file for downstream R anlaysis will be included with paper upon publication. It is also included in this project (S1Table.csv). This can be substituted in the R code for the metadata file "7_11_final_pronghorn_metadata.csv" 
