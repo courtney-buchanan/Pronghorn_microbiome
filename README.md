@@ -1,5 +1,7 @@
 # Pronghorn_microbiome
 
+Note: Fast-Q files of raw data are also available on European Nucleotide Database - EMBL-EBI  under accession number PRJEB68147
+
 ## QIIME2 Pipeline
 For those wishing to replicate the QIIME2 pipeline we used from the raw reads, they can currently be downloaded from Qiita.
 https://qiita.ucsd.edu/study/description/12842 (Note: this project is public but you need to create a Qiita account) 
@@ -7,9 +9,10 @@ https://qiita.ucsd.edu/study/description/12842 (Note: this project is public but
 Qiita download will supply the data in the /FASTQ folder and the 110562_mapping_file.txt used in .sbatch files below. 
 Our code uses 110562_mapping_file_rename.tsv as an input which is simply the above mentioned downloaded Qiita mapping file renamed as a .tsv.
 
-If using the .sbatch files to follow our QIIME2 workflow, you will have to do so in the following order.
-Note: File locations in the code will have to be altered from our code to fit your file locations. Pronghorn metadata file used with the QIIME pipeline is pronghorn_metadata_plus.tsv file
+We have also included the files that are included in the Qiita download here: 110562_mapping_file.txt, 
 
+If using the .sbatch files to follow our QIIME2 workflow, you will have to do so in the following order.
+Note: File locations, directories, and folders in the code will have to be altered from our code to fit your file locations. Pronghorn metadata file used with the QIIME pipeline is pronghorn_metadata_plus.tsv file
 
 1) pronghorn_demux_sublime.sbatch
 2) pronghorn_dada2.sbatch
@@ -33,3 +36,5 @@ Following the above QIIME2 pipeline will produce the following outputs needed fo
 Code for downstream analysis in R is in the final_pronghorn_PLOS_submission.Rmd file
 
 Metadata file for downstream R anlaysis will be included with paper upon publication. It is also included in this project (S1Table.csv). This can be substituted in the R code for the metadata file "7_11_final_pronghorn_metadata.csv" 
+
+
